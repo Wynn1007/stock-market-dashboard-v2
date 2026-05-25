@@ -1,0 +1,6 @@
+{
+  "name": "Wynn Finance 2.0",
+  "description": "Wynn Finance 2.0 is a professional real-time trading terminal, interactive charting monitor, and persistent bookkeeping ledger system integrated with SQLite and Google Gemini-powered stock analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
