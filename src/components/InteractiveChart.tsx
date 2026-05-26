@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import { Candle } from "../types";
 
 interface InteractiveChartProps {
@@ -24,7 +24,7 @@ export default function InteractiveChart({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 680, height: 380 });
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [, setMousePos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -41,293 +41,264 @@ export default function InteractiveChart({
     return () => resizeObserver.disconnect();
   }, []);
 
-  const displayCandles = [...candles];
+  const displayCandles = useMemo(() => [...candles], [candles]);
 
-  const calcMA = (period: number, index: number): number | null => {
-    if (index < period - 1) return null;
-    let sum = 0;
-    for (let i = 0; i < period; i++) {
-      sum += displayCandles[index - i].close;
-    }
-    return sum / period;
-  };
+  const ma5List = useMemo(() => {
+    return displayCandles.map((_, idx) => {
+      if (idx < 4) return null;
+      let sum = 0;
+      for (let i = 0; i < 5; i++) sum += displayCandles[idx - i].close;
+      return sum / 5;
+    });
+  }, [displayCandles]);
 
-  const ma5List = displayCandles.map((_, idx) => calcMA(5, idx));
-  const ma20List = displayCandles.map((_, idx) => calcMA(20, idx));
+  const ma20List = useMemo(() => {
+    return displayCandles.map((_, idx) => {
+      if (idx < 19) return null;
+      let sum = 0;
+      for (let i = 0; i < 20; i++) sum += displayCandles[idx - i].close;
+      return sum / 20;
+    });
+  }, [displayCandles]);
 
   // Determine theme-specific color palette for canvas rendering
   const isMidnight = theme === "midnight";
-  const gridColor = isMidnight ? "rgba(51, 65, 85, 0.55)" : "#e2e8f0"; // slate-700 vs slate-200
-  const textColor = isMidnight ? "#94a3b8" : "#64748b"; // slate-400 vs slate-500
-  const lineChartColor = isMidnight ? "#06b6d4" : "#2563eb"; // cyan-500 vs blue-600
+  const gridColor = isMidnight ? "rgba(51, 65, 85, 0.55)" : "rgba(226, 232, 240, 0.8)"; 
+  const textColor = isMidnight ? "#94a3b8" : "#64748b"; 
+  const lineChartColor = isMidnight ? "#06b6d4" : "#2563eb"; 
   const gradientStart = isMidnight ? "rgba(6, 182, 212, 0.35)" : "rgba(37, 99, 235, 0.25)";
   const crosshairColor = isMidnight ? "#64748b" : "#94a3b8";
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || displayCandles.length === 0) return;
+    let animationFrameId: number;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const render = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || displayCandles.length === 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = dimensions.width * dpr;
-    canvas.height = dimensions.height * dpr;
-    ctx.scale(dpr, dpr);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    const width = dimensions.width;
-    const height = dimensions.height;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = dimensions.width * dpr;
+      canvas.height = dimensions.height * dpr;
+      ctx.scale(dpr, dpr);
 
-    const paddingRight = 65;
-    const paddingBottom = 24;
-    const paddingTop = 16;
-    const paddingLeft = 16;
+      const { width, height } = dimensions;
+      const paddingRight = 65;
+      const paddingBottom = 24;
+      const paddingTop = 16;
+      const paddingLeft = 16;
 
-    const chartWidth = width - paddingLeft - paddingRight;
-    const chartHeight = height - paddingTop - paddingBottom;
+      const chartWidth = width - paddingLeft - paddingRight;
+      const chartHeight = height - paddingTop - paddingBottom;
 
-    const prices = displayCandles.map((c) => [c.high, c.low, c.close, c.open]).flat();
-    let maxPrice = Math.max(...prices);
-    let minPrice = Math.min(...prices);
+      const prices = displayCandles.map((c) => [c.high, c.low, c.close, c.open]).flat();
+      let maxPrice = Math.max(...prices);
+      let minPrice = Math.min(...prices);
 
-    const priceDiff = maxPrice - minPrice;
-    maxPrice += priceDiff * 0.08 || 5;
-    minPrice -= priceDiff * 0.08 || 5;
-    if (minPrice < 0) minPrice = 0;
+      const priceDiff = maxPrice - minPrice;
+      maxPrice += priceDiff * 0.08 || 5;
+      minPrice -= priceDiff * 0.08 || 5;
+      if (minPrice < 0) minPrice = 0;
 
-    const maxVol = Math.max(...displayCandles.map((c) => c.volume));
+      const maxVol = Math.max(...displayCandles.map((c) => c.volume));
 
-    ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, width, height);
 
-    // Dynamic optional backend fill if midnight
-    if (isMidnight) {
-      ctx.fillStyle = "#0f172a"; // deep dark background fill
-      ctx.fillRect(0, 0, width, height);
-    }
+      if (isMidnight) {
+        ctx.fillStyle = "#0f172a"; 
+        ctx.fillRect(0, 0, width, height);
+      } else {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+      }
 
-    // Grid lines
-    ctx.strokeStyle = gridColor;
-    ctx.lineWidth = 0.5;
+      // Grid lines
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 0.5;
 
-    const gridSlices = 6;
-    for (let i = 0; i <= gridSlices; i++) {
-      const x = paddingLeft + (chartWidth / gridSlices) * i;
-      ctx.beginPath();
-      ctx.moveTo(x, paddingTop);
-      ctx.lineTo(x, paddingTop + chartHeight);
-      ctx.stroke();
-    }
-
-    const gridLevels = 5;
-    ctx.fillStyle = textColor;
-    ctx.font = "10px JetBrains Mono, Inter, sfc, monospace";
-    ctx.textAlign = "left";
-
-    for (let i = 0; i <= gridLevels; i++) {
-      const y = paddingTop + (chartHeight / gridLevels) * i;
-      ctx.beginPath();
-      ctx.moveTo(paddingLeft, y);
-      ctx.lineTo(paddingLeft + chartWidth, y);
-      ctx.stroke();
-
-      const priceVal = maxPrice - ((maxPrice - minPrice) / gridLevels) * i;
-      ctx.fillText(
-        priceVal.toLocaleString(undefined, {
-          minimumFractionDigits: priceVal > 1000 ? 1 : priceVal < 5 ? 4 : 2,
-          maximumFractionDigits: priceVal > 1000 ? 1 : priceVal < 5 ? 4 : 2,
-        }),
-        paddingLeft + chartWidth + 6,
-        y + 3
-      );
-    }
-
-    const getX = (index: number) => {
-      return paddingLeft + (index / (displayCandles.length - 1)) * chartWidth;
-    };
-
-    const getY = (val: number) => {
-      return (
-        paddingTop +
-        chartHeight -
-        ((val - minPrice) / (maxPrice - minPrice)) * chartHeight
-      );
-    };
-
-    // Draw Volume bars
-    ctx.globalAlpha = isMidnight ? 0.22 : 0.15;
-    const barWidth = Math.max(1.5, (chartWidth / displayCandles.length) * 0.7);
-    displayCandles.forEach((candle, idx) => {
-      const x = getX(idx) - barWidth / 2;
-      const volHeight = (candle.volume / (maxVol || 1)) * (chartHeight * 0.2);
-      const y = paddingTop + chartHeight - volHeight;
-
-      ctx.fillStyle = candle.close >= candle.open ? "#10b981" : "#ef4444";
-      ctx.fillRect(x, y, barWidth, volHeight);
-    });
-    ctx.globalAlpha = 1.0;
-
-    // Draw lines or candles
-    if (chartType === "candlestick") {
-      displayCandles.forEach((candle, idx) => {
-        const x = getX(idx);
-        const yOpen = getY(candle.open);
-        const yClose = getY(candle.close);
-        const yHigh = getY(candle.high);
-        const yLow = getY(candle.low);
-
-        const isBullish = candle.close >= candle.open;
-        ctx.strokeStyle = isBullish ? "#10b981" : "#ef4444";
-        ctx.fillStyle = isBullish ? "#10b981" : "#ef4444";
-        ctx.lineWidth = 1.25;
-
+      const gridSlices = 6;
+      for (let i = 0; i <= gridSlices; i++) {
+        const x = paddingLeft + (chartWidth / gridSlices) * i;
         ctx.beginPath();
-        ctx.moveTo(x, yHigh);
-        ctx.lineTo(x, yLow);
+        ctx.moveTo(x, paddingTop);
+        ctx.lineTo(x, paddingTop + chartHeight);
+        ctx.stroke();
+      }
+
+      const gridLevels = 5;
+      ctx.fillStyle = textColor;
+      ctx.font = "10px JetBrains Mono, Inter, sans-serif, monospace";
+      ctx.textAlign = "left";
+
+      for (let i = 0; i <= gridLevels; i++) {
+        const y = paddingTop + (chartHeight / gridLevels) * i;
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, y);
+        ctx.lineTo(paddingLeft + chartWidth, y);
         ctx.stroke();
 
-        const rectY = Math.min(yOpen, yClose);
-        const rectH = Math.max(1.5, Math.abs(yClose - yOpen));
-        ctx.fillRect(x - barWidth / 2, rectY, barWidth, rectH);
+        const priceVal = maxPrice - ((maxPrice - minPrice) / gridLevels) * i;
+        ctx.fillText(
+          priceVal.toLocaleString(undefined, {
+            minimumFractionDigits: priceVal > 1000 ? 1 : priceVal < 5 ? 4 : 2,
+            maximumFractionDigits: priceVal > 1000 ? 1 : priceVal < 5 ? 4 : 2,
+          }),
+          paddingLeft + chartWidth + 6,
+          y + 3
+        );
+      }
+
+      const getX = (index: number) => {
+        if (displayCandles.length <= 1) return paddingLeft + chartWidth / 2;
+        return paddingLeft + (index / (displayCandles.length - 1)) * chartWidth;
+      };
+
+      const getY = (val: number) => {
+        return (
+          paddingTop +
+          chartHeight -
+          ((val - minPrice) / (maxPrice - minPrice)) * chartHeight
+        );
+      };
+
+      // Draw Volume bars
+      ctx.globalAlpha = isMidnight ? 0.22 : 0.15;
+      const barWidth = Math.max(1.5, (chartWidth / displayCandles.length) * 0.7);
+      displayCandles.forEach((candle, idx) => {
+        const x = getX(idx) - barWidth / 2;
+        const volHeight = (candle.volume / (maxVol || 1)) * (chartHeight * 0.2);
+        const y = paddingTop + chartHeight - volHeight;
+        ctx.fillStyle = candle.close >= candle.open ? "#10b981" : "#ef4444";
+        ctx.fillRect(x, y, barWidth, volHeight);
       });
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(getX(0), getY(displayCandles[0].close));
-      for (let i = 1; i < displayCandles.length; i++) {
-        ctx.lineTo(getX(i), getY(displayCandles[i].close));
-      }
-      ctx.strokeStyle = lineChartColor;
-      ctx.lineWidth = 2.25;
-      ctx.stroke();
+      ctx.globalAlpha = 1.0;
 
-      const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartHeight);
-      gradient.addColorStop(0, gradientStart);
-      gradient.addColorStop(1, "rgba(0,0,0,0)");
-
-      ctx.beginPath();
-      ctx.moveTo(getX(0), paddingTop + chartHeight);
-      ctx.lineTo(getX(0), getY(displayCandles[0].close));
-      for (let i = 1; i < displayCandles.length; i++) {
-        ctx.lineTo(getX(i), getY(displayCandles[i].close));
-      }
-      ctx.lineTo(getX(displayCandles.length - 1), paddingTop + chartHeight);
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.fill();
-    }
-
-    // Moving averages paths
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "#f59e0b";
-    ctx.beginPath();
-    let startedMA5 = false;
-    ma5List.forEach((val, idx) => {
-      if (val !== null) {
-        const x = getX(idx);
-        const y = getY(val);
-        if (!startedMA5) {
-          ctx.moveTo(x, y);
-          startedMA5 = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-    });
-    ctx.stroke();
-
-    ctx.strokeStyle = "#a855f7";
-    ctx.beginPath();
-    let startedMA20 = false;
-    ma20List.forEach((val, idx) => {
-      if (val !== null) {
-        const x = getX(idx);
-        const y = getY(val);
-        if (!startedMA20) {
-          ctx.moveTo(x, y);
-          startedMA20 = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-    });
-    ctx.stroke();
-
-    // Bottom Time labels
-    ctx.fillStyle = textColor;
-    ctx.textAlign = "center";
-    const labelSteps = 4;
-    for (let i = 0; i < labelSteps; i++) {
-      const idx = Math.floor((displayCandles.length / (labelSteps - 1)) * i);
-      const safeIdx = Math.min(idx, displayCandles.length - 1);
-      const candle = displayCandles[safeIdx];
-      const x = getX(safeIdx);
-
-      let dateStr = "";
-      if (timeframe === "1d") {
-        dateStr = new Date(candle.time).toLocaleDateString(undefined, {
-          month: "2-digit",
-          day: "2-digit",
+      // Draw lines or candles
+      if (chartType === "candlestick") {
+        displayCandles.forEach((candle, idx) => {
+          const x = getX(idx);
+          const yOpen = getY(candle.open);
+          const yClose = getY(candle.close);
+          const yHigh = getY(candle.high);
+          const yLow = getY(candle.low);
+          const isBullish = candle.close >= candle.open;
+          ctx.strokeStyle = isBullish ? "#10b981" : "#ef4444";
+          ctx.fillStyle = isBullish ? "#10b981" : "#ef4444";
+          ctx.lineWidth = 1.25;
+          ctx.beginPath();
+          ctx.moveTo(x, yHigh);
+          ctx.lineTo(x, yLow);
+          ctx.stroke();
+          const rectY = Math.min(yOpen, yClose);
+          const rectH = Math.max(1.5, Math.abs(yClose - yOpen));
+          ctx.fillRect(x - barWidth / 2, rectY, barWidth, rectH);
         });
       } else {
-        dateStr = new Date(candle.time).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
+        ctx.beginPath();
+        ctx.moveTo(getX(0), getY(displayCandles[0].close));
+        for (let i = 1; i < displayCandles.length; i++) {
+          ctx.lineTo(getX(i), getY(displayCandles[i].close));
+        }
+        ctx.strokeStyle = lineChartColor;
+        ctx.lineWidth = 2.25;
+        ctx.stroke();
+        const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartHeight);
+        gradient.addColorStop(0, gradientStart);
+        gradient.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.beginPath();
+        ctx.moveTo(getX(0), paddingTop + chartHeight);
+        ctx.lineTo(getX(0), getY(displayCandles[0].close));
+        for (let i = 1; i < displayCandles.length; i++) {
+          ctx.lineTo(getX(i), getY(displayCandles[i].close));
+        }
+        ctx.lineTo(getX(displayCandles.length - 1), paddingTop + chartHeight);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
       }
-      ctx.fillText(dateStr, x, paddingTop + chartHeight + 14);
-    }
 
-    // Interactive crosshairs highlighter
-    if (hoverIdx !== null && hoverIdx >= 0 && hoverIdx < displayCandles.length) {
-      const hovered = displayCandles[hoverIdx];
-      const hX = getX(hoverIdx);
-      const hY = getY(hovered.close);
-
-      ctx.strokeStyle = crosshairColor;
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 0.8;
-
-      ctx.beginPath();
-      ctx.moveTo(hX, paddingTop);
-      ctx.lineTo(hX, paddingTop + chartHeight);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(paddingLeft, hY);
-      ctx.lineTo(paddingLeft + chartWidth, hY);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = chartType === "candlestick" ? (hovered.close >= hovered.open ? "#10b981" : "#ef4444") : lineChartColor;
-      ctx.beginPath();
-      ctx.arc(hX, hY, 4, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.strokeStyle = "#ffffff";
+      // Moving averages paths
       ctx.lineWidth = 1;
+      ctx.strokeStyle = "#f59e0b";
+      ctx.beginPath();
+      let startedMA5 = false;
+      ma5List.forEach((val, idx) => {
+        if (val !== null) {
+          const x = getX(idx);
+          const y = getY(val);
+          if (!startedMA5) { ctx.moveTo(x, y); startedMA5 = true; }
+          else { ctx.lineTo(x, y); }
+        }
+      });
       ctx.stroke();
-    }
-  }, [dimensions, displayCandles, chartType, hoverIdx, theme]);
+
+      ctx.strokeStyle = "#a855f7";
+      ctx.beginPath();
+      let startedMA20 = false;
+      ma20List.forEach((val, idx) => {
+        if (val !== null) {
+          const x = getX(idx);
+          const y = getY(val);
+          if (!startedMA20) { ctx.moveTo(x, y); startedMA20 = true; }
+          else { ctx.lineTo(x, y); }
+        }
+      });
+      ctx.stroke();
+
+      // Time labels
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      const labelSteps = 4;
+      for (let i = 0; i < labelSteps; i++) {
+        const idx = Math.floor((displayCandles.length / (labelSteps - 1)) * i);
+        const safeIdx = Math.min(idx, displayCandles.length - 1);
+        const candle = displayCandles[safeIdx];
+        const x = getX(safeIdx);
+        let dateStr = timeframe === "1d" 
+          ? new Date(candle.time).toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" })
+          : new Date(candle.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+        ctx.fillText(dateStr, x, paddingTop + chartHeight + 14);
+      }
+
+      // Crosshairs
+      if (hoverIdx !== null && hoverIdx >= 0 && hoverIdx < displayCandles.length) {
+        const hovered = displayCandles[hoverIdx];
+        const hX = getX(hoverIdx);
+        const hY = getY(hovered.close);
+        ctx.strokeStyle = crosshairColor;
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(hX, paddingTop); ctx.lineTo(hX, paddingTop + chartHeight); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, hY); ctx.lineTo(paddingLeft + chartWidth, hY); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = chartType === "candlestick" ? (hovered.close >= hovered.open ? "#10b981" : "#ef4444") : lineChartColor;
+        ctx.beginPath(); ctx.arc(hX, hY, 4, 0, 2 * Math.PI); ctx.fill();
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.stroke();
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [displayCandles, dimensions, chartType, hoverIdx, theme, ma5List, ma20List, gridColor, textColor, lineChartColor, gradientStart, crosshairColor, timeframe]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || candles.length === 0) return;
-
+    if (!canvas || displayCandles.length === 0) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-
     setMousePos({ x, y });
-
     const paddingLeft = 16;
     const paddingRight = 65;
     const chartWidth = dimensions.width - paddingLeft - paddingRight;
-
     const relativeX = x - paddingLeft;
     const pct = relativeX / chartWidth;
-    let idx = Math.round(pct * (candles.length - 1));
-    idx = Math.max(0, Math.min(idx, candles.length - 1));
-
+    let idx = Math.round(pct * (displayCandles.length - 1));
+    idx = Math.max(0, Math.min(idx, displayCandles.length - 1));
     if (x >= paddingLeft && x <= dimensions.width - paddingRight) {
       setHoverIdx(idx);
     } else {
@@ -335,21 +306,13 @@ export default function InteractiveChart({
     }
   };
 
-  const handleMouseLeave = () => {
-    setHoverIdx(null);
-  };
-
-  const activeCandle = hoverIdx !== null ? candles[hoverIdx] : candles[candles.length - 1];
+  const activeCandle = hoverIdx !== null ? displayCandles[hoverIdx] : displayCandles[displayCandles.length - 1];
   const activeMA5 = hoverIdx !== null ? ma5List[hoverIdx] : ma5List[ma5List.length - 1];
   const activeMA20 = hoverIdx !== null ? ma20List[hoverIdx] : ma20List[ma20List.length - 1];
 
   const tLabels = {
-    zh: {
-      open: "開", high: "高", low: "低", close: "收", vol: "量", data: "數據點"
-    },
-    en: {
-      open: "O", high: "H", low: "L", close: "C", vol: "V", data: "Cursor Data"
-    }
+    zh: { open: "開", high: "高", low: "低", close: "收", vol: "量", data: "數據點" },
+    en: { open: "O", high: "H", low: "L", close: "C", vol: "V", data: "Cursor Data" }
   }[lang];
 
   return (
@@ -378,7 +341,7 @@ export default function InteractiveChart({
       <div ref={containerRef} className={`flex-1 w-full relative rounded-2xl border overflow-hidden min-h-[300px] transition-colors duration-200 ${
         isMidnight ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
       }`}>
-        {candles.length === 0 ? (
+        {displayCandles.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-xs">
             {lang === "zh" ? "讀取市場高速數據中..." : "Accessing market signals..."}
           </div>
@@ -388,7 +351,7 @@ export default function InteractiveChart({
             ref={canvasRef}
             style={{ width: "100%", height: "100%", display: "block" }}
             onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
+            onMouseLeave={() => setHoverIdx(null)}
             className="cursor-crosshair"
           />
         )}

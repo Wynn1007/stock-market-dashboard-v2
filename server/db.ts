@@ -65,9 +65,17 @@ export async function initializeDatabase() {
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         passwordHash TEXT NOT NULL,
+        discordWebhook TEXT,
         createdAt INTEGER NOT NULL
       )
     `);
+
+    // Ensure discordWebhook column exists (for existing databases)
+    try {
+      await dbRun("ALTER TABLE users ADD COLUMN discordWebhook TEXT");
+    } catch (err) {
+      // Column might already exist, ignore error
+    }
 
     // 2. Ledger table (Financial Bookkeeping)
     await dbRun(`
@@ -94,6 +102,17 @@ export async function initializeDatabase() {
         price REAL NOT NULL,
         qty REAL NOT NULL,
         timestamp INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 4. Watchlist table
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS watchlist (
+        userId TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        PRIMARY KEY (userId, symbol),
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       )
     `);

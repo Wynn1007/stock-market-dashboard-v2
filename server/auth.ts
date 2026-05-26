@@ -15,17 +15,34 @@ export interface AuthenticatedRequest extends Request {
 
 // REST API token verifier
 export function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  // Bypass database auth / JWT verification: support instant sandbox active access as Admin
-  req.user = {
-    id: "U-MASTER-USER",
-    username: "Admin",
-  };
-  next();
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    // If no token is provided, we still allow some public routes or handle it in the route itself
+    // But for routes that use this middleware, they usually expect a user.
+    // To maintain compatibility with the "Admin" bypass for specific local development, 
+    // we could check an environment variable, but it's safer to require a token.
+    return res.status(401).json({ success: false, message: "Authentication token required." });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ success: false, message: "Invalid or expired token." });
+    }
+    req.user = user;
+    next();
+  });
 }
 
 // WebSocket Connection JWT verifier
 export function verifyWebSocketToken(token: string): { id: string; username: string } | null {
-  return { id: "U-MASTER-USER", username: "Admin" };
+  try {
+    if (!token) return null;
+    return jwt.verify(token, JWT_SECRET) as { id: string; username: string };
+  } catch (err) {
+    return null;
+  }
 }
 
 // Authentication Controllers

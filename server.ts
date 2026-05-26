@@ -39,10 +39,11 @@ const REVERSE_YAHOO_MAPPING: Record<string, string> = {
 async function syncRealPricesFromYahoo() {
   try {
     const symbolsList = ASSET_DIRECTORY.map((asset) => getYahooSymbol(asset.symbol));
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolsList.join(",")}`;
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbolsList.join(",")}`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
       },
     });
     if (!res.ok) {
@@ -103,9 +104,9 @@ function populateStateCache() {
     database.set(asset.symbol, ticker);
   });
 
-  // Hot sync immediately, then poll every 6 seconds
+  // Hot sync immediately, then poll every 60 seconds
   syncRealPricesFromYahoo();
-  setInterval(syncRealPricesFromYahoo, 6000);
+  setInterval(syncRealPricesFromYahoo, 60000);
 }
 
 // -------------------------------------------------------------

@@ -146,9 +146,11 @@ export function setupWebSocket(wss: WebSocketServer) {
 // Low latency continuous randomized simulation walking ticks
 export function startMarketSimulation(wss: WebSocketServer) {
   setInterval(() => {
-    const randomSymbols = ASSET_DIRECTORY.map((a) => a.symbol)
+    // Select a subset of assets to update in each tick for performance
+    const symbols = Array.from(database.keys());
+    const randomSymbols = symbols
       .sort(() => 0.5 - Math.random())
-      .slice(0, 4);
+      .slice(0, 5);
 
     randomSymbols.forEach((symbol) => {
       const ticker = database.get(symbol);
@@ -158,8 +160,11 @@ export function startMarketSimulation(wss: WebSocketServer) {
       const mStatus = getMarketStatus(symbol);
       if (!mStatus.isOpen) return;
 
-      const volatility = symbol === "BTC" || symbol === "SOL" || symbol === "ETH" ? 0.0018 : 0.0008;
-      const changePercent = (Math.random() - 0.495) * volatility;
+      // Extremely low volatility for non-crypto to avoid "phantom jitter"
+      const isCrypto = ASSET_DIRECTORY.find(a => a.symbol === symbol)?.category === "crypto";
+      const baseVolatility = isCrypto ? 0.0003 : 0.00008;
+      
+      const changePercent = (Math.random() - 0.5) * baseVolatility;
       const multiplier = 1 + changePercent;
 
       const oldPrice = ticker.price;
@@ -167,19 +172,19 @@ export function startMarketSimulation(wss: WebSocketServer) {
         ticker.price > 1000 ? 1 : ticker.price < 5 ? 4 : 2
       ));
 
-      const spread = symbol === "BTC" ? 2.5 : symbol === "ETH" ? 0.4 : newPrice * 0.0005;
-      const bidPrice = Number((newPrice - spread / 2).toFixed(2));
-      const askPrice = Number((newPrice + spread / 2).toFixed(2));
-      const bidSize = Math.floor(Math.random() * 300) + 5;
-      const askSize = Math.floor(Math.random() * 300) + 5;
-
+      // Update spreads based on new price
+      const spreadBase = isCrypto ? (symbol === "BTC" ? 2.0 : 0.4) : newPrice * 0.0001;
+      const bidPrice = Number((newPrice - spreadBase / 2).toFixed(2));
+      const askPrice = Number((newPrice + spreadBase / 2).toFixed(2));
+      
       const latestCandles = [...ticker.candles];
       if (latestCandles.length > 0) {
         const last = latestCandles[latestCandles.length - 1];
         last.close = newPrice;
         if (newPrice > last.high) last.high = newPrice;
         if (newPrice < last.low) last.low = newPrice;
-        last.volume += Math.floor(Math.random() * 50) + 1;
+        // Moderate volume growth
+        last.volume += Math.floor(Math.random() * 5) + 1;
       }
 
       const firstCandle = latestCandles[0];
@@ -193,8 +198,6 @@ export function startMarketSimulation(wss: WebSocketServer) {
       ticker.low = Math.min(...latestCandles.map((c) => c.low));
       ticker.bidPrice = bidPrice;
       ticker.askPrice = askPrice;
-      ticker.bidSize = bidSize;
-      ticker.askSize = askSize;
 
       // Only broadcast ticks to authorized users who are currently connected
       const tickPayload = JSON.stringify({
@@ -218,5 +221,5 @@ export function startMarketSimulation(wss: WebSocketServer) {
         }
       });
     });
-  }, 180);
+  }, 1000); // Increased interval to 1000ms for stability and performance
 }

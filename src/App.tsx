@@ -50,6 +50,8 @@ export default function App() {
   const [chartType, setChartType] = useState<"line" | "candlestick">("candlestick");
   const [timeframe, setTimeframe] = useState<string>("1m");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [showOnlyWatchlist, setShowOnlyWatchlist] = useState<boolean>(false);
 
   // Detailed selected ticker depth states
   const [tickerDetails, setTickerDetails] = useState<TickerData | null>(null);
@@ -86,7 +88,7 @@ export default function App() {
       changeLabel: "24H 漲跌比率",
       aiButton: "AI 智能個股診斷",
       aiLoadingText: "正在彙總 K 線力道與籌碼面指標...",
-      aiTitle: "Google Gemini 智慧量化分析報告",
+      aiTitle: "AI 分析報告",
       sidebarHeader: "資產觀測所",
       footerMarkets: "全球交易所狀態：美股/期貨/加密 24H 隨時同步",
       footerRefresh: "寫入延遲: 0.8ms | SQLite 行資料庫持久化",
@@ -120,7 +122,7 @@ export default function App() {
       changeLabel: "24h Shift Percentage",
       aiButton: "AI Ticker Advisor",
       aiLoadingText: "Synthesizing moving averages & market statistics...",
-      aiTitle: "Google Gemini Fin-AI Model Report",
+      aiTitle: "AI Analysis Report",
       sidebarHeader: "Asset Watchtower",
       footerMarkets: "Exchange Index Stream: Stocks/Crypto/Gold 24H HotSync",
       footerRefresh: "Write Latency: 0.8ms | Persistent SQLite Storage Engine",
@@ -157,6 +159,45 @@ export default function App() {
     }
   };
 
+  const fetchWatchlist = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/watchlist", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWatchlist(data.watchlist);
+      }
+    } catch (err) {
+      console.error("Watchlist loader error:", err);
+    }
+  };
+
+  const toggleWatchlist = async (symbol: string) => {
+    if (!token) {
+      setShowLoginPrompt(true);
+      return;
+    }
+    const isWatched = watchlist.includes(symbol);
+    try {
+      const res = await fetch(`/api/watchlist${isWatched ? "/" + symbol : ""}`, {
+        method: isWatched ? "DELETE" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: isWatched ? undefined : JSON.stringify({ symbol })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchWatchlist();
+      }
+    } catch (err) {
+      console.error("Watchlist update error:", err);
+    }
+  };
+
   const fetchSymbolDetail = async (symbol: string) => {
     try {
       const res = await fetch(`/api/assets/${symbol}`);
@@ -186,10 +227,11 @@ export default function App() {
     }
   };
 
-  const handleAIAnalyze = async () => {
-    if (!selectedSymbol) return;
+  const handleAIAnalyzeInternal = async (symbol: string) => {
+    if (!symbol) return;
     setAiLoading(true);
     setAiAnalysis(null);
+    setAiSource(null);
     try {
       const response = await fetch("/api/ai/analyze", {
         method: "POST",
@@ -197,21 +239,29 @@ export default function App() {
           "Content-Type": "application/json",
           "Authorization": token ? `Bearer ${token}` : ""
         },
-        body: JSON.stringify({ symbol: selectedSymbol }),
+        body: JSON.stringify({ symbol }),
       });
+      
       const data = await response.json();
-      if (data.success) {
+      if (response.ok && data.success) {
         setAiAnalysis(data.analysis);
         setAiSource(data.source);
       } else {
-        setAiAnalysis(lang === "zh" ? "分析服務目前忙碌中，請重複點擊診斷" : "Fin-AI analyst rate limited. Retry shortly.");
+        const errorMsg = data.message || (lang === "zh" ? "分析服務目前忙碌中，正在排隊或已達到上限" : "Fin-AI analyst is busy or rate limited.");
+        setAiAnalysis(errorMsg);
+        setAiSource(lang === "zh" ? "系統反饋" : "System Feedback");
       }
     } catch (err) {
       console.error("AI service error:", err);
-      setAiAnalysis("Gemini 智能診斷分析連線忙碌中...");
+      setAiAnalysis(lang === "zh" ? "無法連接分析伺服器，請檢查網路連線。" : "Connection failed. Please check your network.");
+      setAiSource(lang === "zh" ? "網路錯誤" : "Network Error");
     } finally {
       setAiLoading(false);
     }
+  };
+
+  const handleAIAnalyze = () => {
+    handleAIAnalyzeInternal(selectedSymbol);
   };
 
   // Automated Guest Login so user never runs into blank screen or breaks
@@ -220,6 +270,7 @@ export default function App() {
       if (token) {
         // Authenticated, just fetch orders
         fetchOrders();
+        fetchWatchlist();
         return;
       }
       // Autohandshake default admin account as guest experience
@@ -404,34 +455,6 @@ export default function App() {
     }, 300);
   };
 
-  const handleAIAnalyzeInternal = async (symbol: string) => {
-    if (!symbol) return;
-    setAiLoading(true);
-    setAiAnalysis(null);
-    try {
-      const response = await fetch("/api/ai/analyze", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token ? `Bearer ${token}` : ""
-        },
-        body: JSON.stringify({ symbol }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        setAiAnalysis(data.analysis);
-        setAiSource(data.source);
-      } else {
-        setAiAnalysis(lang === "zh" ? "分析服務目前忙碌中" : "Fin-AI analyst rate limited.");
-      }
-    } catch (err) {
-      console.error("AI service error:", err);
-      setAiAnalysis("Gemini 智能診斷分析連線忙碌中...");
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   // Switch timeframe trigger
   const handleTimeframeChange = (tf: string) => {
     setTimeframe(tf);
@@ -576,13 +599,27 @@ export default function App() {
 
   // Global theme-specific style bindings
   const isMidnight = theme === "midnight";
-  const bgMainClass = isMidnight ? "bg-[#0b0f19] text-[#e2e8f0]" : "bg-[#faf9f6]/95 text-slate-800";
-  const bgCardClass = isMidnight ? "bg-[#131a26] border-slate-800" : "bg-white border-slate-200";
-  const headerBgClass = isMidnight ? "bg-[#0f1521] border-slate-800" : "bg-white border-slate-200/80";
-  const footerBgClass = isMidnight ? "bg-[#0a0d14]" : "bg-slate-900";
-  const btnActiveTab = isMidnight ? "bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/10" : "bg-slate-950 text-white shadow-md";
-  const inputClass = isMidnight ? "bg-slate-950 border-slate-850 text-slate-100 placeholder-slate-700 focus:border-cyan-500" : "bg-white border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20";
+  const bgMainClass = isMidnight ? "bg-[#0b0f19] text-[#e2e8f0]" : "bg-[#f8fafc] text-slate-900";
+  const bgCardClass = isMidnight ? "bg-[#131a26] border-slate-800" : "bg-white border-slate-200/60 shadow-sm";
+  const headerBgClass = isMidnight ? "bg-[#0f1521] border-slate-800" : "bg-white/80 backdrop-blur-md border-slate-200";        
+  const footerBgClass = isMidnight ? "bg-[#0a0d14]" : "bg-slate-100 border-t border-slate-200";
+  const btnActiveTab = isMidnight 
+    ? "bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/10" 
+    : "bg-blue-600 text-white shadow-md shadow-blue-600/20";
+  const inputClass = isMidnight 
+    ? "bg-slate-950 border-slate-850 text-slate-100 placeholder-slate-700 focus:border-cyan-500" 
+    : "bg-slate-50 border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20";
 
+  const slideBtnClass = (active: boolean) => {
+    if (active) {
+      return isMidnight 
+        ? "bg-slate-700 text-white shadow-sm font-heavy" 
+        : "bg-white text-blue-600 shadow-sm border border-blue-100 font-heavy";
+    }
+    return isMidnight 
+      ? "text-slate-400 hover:text-slate-350" 
+      : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50";
+  };
   return (
     <div className={`min-h-screen flex flex-col font-sans overflow-x-hidden antialiased transition-colors duration-200 ${bgMainClass}`} id="main-application-frame">
       
@@ -619,7 +656,7 @@ export default function App() {
             <button
               onClick={() => setTheme("milk")}
               className={`p-1 px-2.5 rounded-md cursor-pointer transition text-[10px] uppercase font-bold flex items-center gap-1 ${
-                theme === "milk" ? "bg-slate-950 text-white" : "text-slate-400"
+                theme === "milk" ? "bg-slate-700 text-white" : "text-slate-400"
               }`}
               title={dict.themeToggleMilk}
             >
@@ -707,8 +744,12 @@ export default function App() {
             {/* Sidebar monitoring list */}
             <AssetListSidebar
               assets={assets}
+              watchlist={watchlist}
+              showOnlyWatchlist={showOnlyWatchlist}
+              onToggleWatchlistOnly={() => setShowOnlyWatchlist(!showOnlyWatchlist)}
               selectedSymbol={selectedSymbol}
               onSelectAsset={handleSelectAsset}
+              onToggleWatchlist={toggleWatchlist}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               lang={lang}
@@ -740,6 +781,22 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-6">
+                    {/* AI Button restored here */}
+                    <button
+                      onClick={handleAIAnalyze}
+                      disabled={aiLoading}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer ${
+                        isMidnight ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400" : "bg-slate-700 text-white hover:bg-slate-800"
+                      } disabled:opacity-50`}
+                    >
+                      {aiLoading ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5" />
+                      )}
+                      {dict.aiButton}
+                    </button>
+
                     <div className="flex flex-col text-right">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">{dict.priceLabel}</span>
                       <span className={`text-2xl font-bold font-mono tracking-tight ${isUp ? "text-emerald-500" : "text-rose-500"}`}>
@@ -784,13 +841,7 @@ export default function App() {
                         <button
                           key={tf}
                           onClick={() => handleTimeframeChange(tf)}
-                          className={`px-2.5 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition uppercase ${
-                            timeframe === tf
-                              ? isMidnight
-                                ? "bg-slate-800 text-white font-heavy"
-                                : "bg-white text-slate-950 shadow-sm"
-                              : "text-slate-400 hover:text-slate-350"
-                          }`}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition uppercase ${slideBtnClass(timeframe === tf)}`}
                         >
                           {tf}
                         </button>
@@ -801,25 +852,13 @@ export default function App() {
                     <div className="bg-slate-100 dark:bg-slate-950 p-1 rounded-lg flex items-center gap-1 border border-slate-200 dark:border-slate-850">
                       <button
                         onClick={() => setChartType("line")}
-                        className={`px-3 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition ${
-                          chartType === "line"
-                            ? isMidnight
-                              ? "bg-slate-800 text-white"
-                              : "bg-white text-slate-950 shadow-sm"
-                            : "text-slate-400 hover:text-slate-350"
-                        }`}
+                        className={`px-3 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition ${slideBtnClass(chartType === "line")}`}
                       >
-                        {lang === "zh" ? "折線" : "Line"}
+                        {lang === "zh" ? "線性" : "Line"}
                       </button>
                       <button
                         onClick={() => setChartType("candlestick")}
-                        className={`px-3 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition ${
-                          chartType === "candlestick"
-                            ? isMidnight
-                              ? "bg-slate-800 text-white"
-                              : "bg-white text-slate-950 shadow-sm"
-                            : "text-slate-400 hover:text-slate-350"
-                        }`}
+                        className={`px-3 py-1 text-[10px] font-bold rounded-sm cursor-pointer transition ${slideBtnClass(chartType === "candlestick")}`}
                       >
                         {lang === "zh" ? "K線" : "K-Line"}
                       </button>

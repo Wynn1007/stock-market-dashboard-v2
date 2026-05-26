@@ -23,10 +23,9 @@ if (GEMINI_API_KEY && GEMINI_API_KEY !== "MY_GEMINI_API_KEY") {
 // -------------------------------------------------------------
 // Discord Webhook Notification System (Active Integration)
 // -------------------------------------------------------------
-let discordWebhookUrlInMemory = "";
 
-export async function sendDiscordMessage(title: string, messageText: string, colorHex: number = 0x2563eb) {
-  if (!discordWebhookUrlInMemory) return;
+export async function sendDiscordMessage(webhookUrl: string | undefined, title: string, messageText: string, colorHex: number = 0x2563eb) {
+  if (!webhookUrl) return;
   try {
     const embed = {
       title: title,
@@ -37,7 +36,7 @@ export async function sendDiscordMessage(title: string, messageText: string, col
         text: "Wynn Finance 2.0 Notification Service"
       }
     };
-    const response = await fetch(discordWebhookUrlInMemory, {
+    const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ embeds: [embed] })
@@ -50,6 +49,12 @@ export async function sendDiscordMessage(title: string, messageText: string, col
   } catch (err: any) {
     console.error("[Discord Notification Error] Failed to dispatch webhook:", err.message);
   }
+}
+
+// Helper to get user's webhook
+async function getUserWebhook(userId: string): Promise<string | undefined> {
+  const user = await dbGet("SELECT discordWebhook FROM users WHERE id = ?", [userId]);
+  return user?.discordWebhook;
 }
 
 // -------------------------------------------------------------
@@ -87,28 +92,24 @@ function isRateLimited(userId: string): boolean {
 // -------------------------------------------------------------
 
 // Active Webhook operations
-apiRouter.get("/discord/webhook", authenticateToken, (req: AuthenticatedRequest, res) => {
-  res.json({ success: true, url: discordWebhookUrlInMemory || "" });
+apiRouter.get("/discord/webhook", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  const webhookUrl = await getUserWebhook(req.user?.id as string);
+  res.json({ success: true, url: webhookUrl || "" });
 });
 
-apiRouter.post("/discord/webhook", authenticateToken, (req: AuthenticatedRequest, res) => {
+apiRouter.post("/discord/webhook", authenticateToken, async (req: AuthenticatedRequest, res) => {
   const { url, webhookUrl } = req.body;
   const targetUrl = url !== undefined ? url : webhookUrl;
-  if (targetUrl !== undefined) {
-    discordWebhookUrlInMemory = targetUrl ? String(targetUrl).trim() : "";
-    sendDiscordMessage("系統整合成功", `🚀 使用者 **${req.user?.username}** 成功整合 Discord Webhook 通知！警報器已就緒。`, 0x10b981);
-  }
-  res.json({ success: true, message: "Discord configuration saved.", url: discordWebhookUrlInMemory });
-});
+  const userId = req.user?.id;
 
-apiRouter.post("/discord-webhook", authenticateToken, (req: AuthenticatedRequest, res) => {
-  const { url, webhookUrl } = req.body;
-  const targetUrl = url !== undefined ? url : webhookUrl;
   if (targetUrl !== undefined) {
-    discordWebhookUrlInMemory = targetUrl ? String(targetUrl).trim() : "";
-    sendDiscordMessage("系統整合成功", `🚀 使用者 **${req.user?.username}** 成功整合 Discord Webhook 通知！警報器已就緒。`, 0x10b981);
+    const cleanUrl = targetUrl ? String(targetUrl).trim() : "";
+    await dbRun("UPDATE users SET discordWebhook = ? WHERE id = ?", [cleanUrl, userId]);
+    if (cleanUrl) {
+      sendDiscordMessage(cleanUrl, "系統整合成功", `🚀 使用者 **${req.user?.username}** 成功整合 Discord Webhook 通知！警報器已就緒。`, 0x10b981);
+    }
   }
-  res.json({ success: true, message: "Discord configuration saved.", url: discordWebhookUrlInMemory });
+  res.json({ success: true, message: "Discord configuration saved." });
 });
 
 // Authentication endpoints
@@ -217,7 +218,9 @@ apiRouter.post("/ledger", authenticateToken, async (req: AuthenticatedRequest, r
 
     // Discord message if expense or salary triggers Webhook alert
     if (cleanAmount >= 10000) {
+      const webhookUrl = await getUserWebhook(userId as string);
       sendDiscordMessage(
+        webhookUrl,
         "大額記帳申報通知",
         `💰 使用者 **${req.user?.username}** 剛剛申報了一筆大額記帳數據：\n- **分類**：${type === "income" ? "📈 收入" : "📉 支出"}\n- **項目**：${category}\n- **金額**：$${cleanAmount.toLocaleString()}\n- **備註**：${description || "無"}`,
         type === "income" ? 0x10b981 : 0xef4444
@@ -249,6 +252,46 @@ apiRouter.delete("/ledger/:id", authenticateToken, async (req: AuthenticatedRequ
     res.json({ success: true, message: "Entry successfully deleted." });
   } catch (err: any) {
     res.status(500).json({ success: false, message: "Failed to delete bookkeeping record." });
+  }
+});
+
+// -------------------------------------------------------------
+// Watchlist Management
+// -------------------------------------------------------------
+apiRouter.get("/watchlist", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    const items = await dbAll("SELECT symbol FROM watchlist WHERE userId = ? ORDER BY createdAt ASC", [userId]);
+    res.json({ success: true, watchlist: items.map(i => i.symbol) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to load watchlist." });
+  }
+});
+
+apiRouter.post("/watchlist", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  const { symbol } = req.body;
+  const userId = req.user?.id;
+  if (!symbol) return res.status(400).json({ success: false, message: "Symbol required." });
+
+  try {
+    await dbRun(
+      "INSERT OR IGNORE INTO watchlist (userId, symbol, createdAt) VALUES (?, ?, ?)",
+      [userId, symbol.toUpperCase(), Date.now()]
+    );
+    res.json({ success: true, message: "Asset added to watchlist." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update watchlist." });
+  }
+});
+
+apiRouter.delete("/watchlist/:symbol", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const userId = req.user?.id;
+  try {
+    await dbRun("DELETE FROM watchlist WHERE userId = ? AND symbol = ?", [userId, symbol]);
+    res.json({ success: true, message: "Asset removed from watchlist." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to delete from watchlist." });
   }
 });
 
@@ -288,7 +331,9 @@ apiRouter.post("/orders", authenticateToken, async (req: AuthenticatedRequest, r
     // Dynamic Discord webhook notify on transactions
     const totalVal = Number(price) * Number(qty);
     if (totalVal >= 50000) {
+      const webhookUrl = await getUserWebhook(userId as string);
       sendDiscordMessage(
+        webhookUrl,
         "高額交易指令撮合成功",
         `⚡ 警報：使用者 **${req.user?.username}** 剛觸發了一次大額合約/現貨交易撮合：\n- **商品**：${symbol.toUpperCase()}\n- **方向**：${type === "BUY" ? "🟢 買進 (BUY)" : "🔴 賣出 (SELL)"}\n- **成交數**：${qty}\n- **成交價**：$${Number(price).toLocaleString()}\n- **成交總額**：**$${totalVal.toLocaleString()}**`,
         type === "BUY" ? 0x10b981 : 0xef4444
@@ -311,14 +356,6 @@ apiRouter.post("/orders", authenticateToken, async (req: AuthenticatedRequest, r
 apiRouter.post("/ai/analyze", authenticateToken, async (req: AuthenticatedRequest, res) => {
   const userId = req.user?.id || req.ip;
 
-  // Rate check
-  if (isRateLimited(userId)) {
-    return res.status(429).json({
-      success: false,
-      message: `診斷過於頻繁！速率限制保護：為防範 API 呼叫溢出，每位使用者每分鐘僅限進行 ${MAX_AI_DIAGNOSES_PER_MINUTE} 次診斷，請稍後再試。`
-    });
-  }
-
   const { symbol } = req.body;
   if (!symbol) {
     return res.status(400).json({ success: false, message: "Symbol is required." });
@@ -328,46 +365,6 @@ apiRouter.post("/ai/analyze", authenticateToken, async (req: AuthenticatedReques
   const meta = ASSET_DIRECTORY.find((a) => a.symbol === symbol);
   if (!ticker || !meta) {
     return res.status(404).json({ success: false, message: "Asset not found." });
-  }
-
-  // Generate robust summary data
-  const candleCount = ticker.candles.length;
-  const averagePrice = (ticker.candles.reduce((acc, c) => acc + c.close, 0) / candleCount).toFixed(2);
-  const priceTrend = ticker.changePercent >= 0 ? "上漲 (Bullish)" : "下跌 (Bearish)";
-
-  const promptStr = `你是一位擁有 20 年豐富理財、股市與加密貨幣投資經驗的高級分析師。請為當前這項資產進行極富專業性、洞察力且排版優美的簡短財經診斷：
-資產名稱：${meta.name} [代號：${meta.symbol}]
-類型種類：${meta.category.toUpperCase()}
-當前市價：${ticker.price}
-今日漲跌幅：${ticker.changePercent.toFixed(2)}%
-24小時最高：${ticker.high}
-24小時最低：${ticker.low}
-平均成交價：${averagePrice}
-大宗趨勢走向：${priceTrend}
-
-你的診斷必須符合以下標準：
-1. 包含以下三個清晰小板塊，使用精美 Markdown 設計：
-   - 📈 雙效技術趨勢評估 (RSI, MA 支撐壓力位分析)
-   - 🔍 當前宏觀市場信心與主力動向洞察
-   - 💡 本日精準操作建議 (適合短線/長線投資者)
-2. 全程使用繁體中文 (Traditional Chinese)。
-3. 文字簡明洗練、專業深刻、避免籠統套話。字數控制在 250 - 350 字之內。`;
-
-  if (ai) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: promptStr,
-      });
-
-      return res.json({
-        success: true,
-        source: "Gemini Pro Active Diagnosis",
-        analysis: response.text,
-      });
-    } catch (err: any) {
-      console.error("Gemini API Error details:", err);
-    }
   }
 
   // Backup Simulate Diagnosis
@@ -385,12 +382,53 @@ apiRouter.post("/ai/analyze", authenticateToken, async (req: AuthenticatedReques
 
 ### 💡 本日精準操作建議
 - **短線投資人**：建請 ${action}。
-- **長線資產配置**：維持分批或定期定額建倉步調，${meta.symbol} 的基本面結構在新一輪高頻量化策略博弈中仍具有良好的彈性與估值支撐點。`;
+- **長線資產配置**：維持分批或定期定額建倉步調，${meta.symbol} 的基本面結構在新一輪高頻量化策略博弈中仍具有良好的彈性與估值支撐點。
+
+---
+*註：系統目前處於高頻交易期，已自動調用 Wynn Quant 本地分析引擎。*`;
   };
 
-  res.json({
-    success: true,
-    source: "Wynn Quant fallback (Offline Engine)",
-    analysis: simulateAIReporter(),
-  });
+  // Immediate fallback if rate limited or AI client missing
+  if (isRateLimited(userId) || !ai) {
+    return res.json({
+      success: true,
+      source: "Wynn Quant Local Engine",
+      analysis: simulateAIReporter(),
+    });
+  }
+
+  // Generate robust summary data
+  const candleCount = ticker.candles.length;
+  const averagePrice = (ticker.candles.reduce((acc, c) => acc + c.close, 0) / candleCount).toFixed(2);
+  const priceTrend = ticker.changePercent >= 0 ? "上漲 (Bullish)" : "下跌 (Bearish)";
+
+  const promptStr = `你是一位高級財經分析師。請為當前資產進行專業診斷：
+資產：${meta.name} [${meta.symbol}] (${meta.category.toUpperCase()})
+市價：${ticker.price} (${ticker.changePercent.toFixed(2)}%)
+高/低：${ticker.high} / ${ticker.low}
+趨勢：${priceTrend}
+
+標準：
+1. 三個板塊：📈 雙效技術趨勢評估, 🔍 當前宏觀市場信心與主力動向洞察, 💡 本日精準操作建議。
+2. 繁體中文，專業簡練，300字左右。`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: promptStr,
+    });
+
+    return res.json({
+      success: true,
+      source: "Gemini Pro Active Diagnosis",
+      analysis: response.text,
+    });
+  } catch (err: any) {
+    console.error("Gemini API Error:", err.message);
+    return res.json({
+      success: true,
+      source: "Wynn Quant fallback (Offline Engine)",
+      analysis: simulateAIReporter(),
+    });
+  }
 });
