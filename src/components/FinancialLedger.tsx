@@ -205,12 +205,14 @@ export default function FinancialLedger({ lang, theme, token, onShowLoginToast }
   };
 
   // Budget calculations
+  const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  
   const totalIncome = ledger
-    .filter((x) => x.type === "income")
+    .filter((x) => x.type === "income" && x.date.startsWith(currentMonth))
     .reduce((sum, x) => sum + x.amount, 0);
 
   const totalExpense = ledger
-    .filter((x) => x.type === "expense")
+    .filter((x) => x.type === "expense" && x.date.startsWith(currentMonth))
     .reduce((sum, x) => sum + x.amount, 0);
 
   const netBalance = totalIncome - totalExpense;
@@ -241,7 +243,9 @@ export default function FinancialLedger({ lang, theme, token, onShowLoginToast }
     <div className="space-y-6 flex flex-col w-full" id="financial-ledger-container">
       {/* ⚠️ Warning If Unauthorized */}
       {!token && (
-        <div className="p-4 bg-orange-100/80 border border-orange-200 rounded-lg text-xs font-semibold text-orange-950 flex items-center gap-2" id="unauth-ledger-notifier">
+        <div className={`p-4 border rounded-lg text-xs font-semibold flex items-center gap-2 ${
+          isMidnight ? "bg-orange-950/20 border-orange-900/40 text-orange-400" : "bg-orange-100/80 border-orange-200 text-orange-950"
+        }`} id="unauth-ledger-notifier">
           <Wallet className="w-4 h-4 animate-bounce text-orange-600 shrink-0" />
           <span>{t.unauthorized}</span>
         </div>

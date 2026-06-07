@@ -7,8 +7,8 @@ export interface Asset {
 
 export const ASSET_DIRECTORY: Asset[] = [
   // --- Cryptos ---
-  { symbol: "BTC", name: "Bitcoin (比特幣)", category: "crypto", basePrice: 68500.0 },
-  { symbol: "ETH", name: "Ethereum (乙太幣)", category: "crypto", basePrice: 3450.0 },
+  { symbol: "BTC", name: "Bitcoin (比特幣)", category: "crypto", basePrice: 61298.0 },
+  { symbol: "ETH", name: "Ethereum (乙太幣)", category: "crypto", basePrice: 3850.0 },
   { symbol: "SOL", name: "Solana (索拉納)", category: "crypto", basePrice: 165.2 },
   { symbol: "XRP", name: "Ripple (瑞波幣)", category: "crypto", basePrice: 0.58 },
   { symbol: "BNB", name: "Binance Coin (幣安幣)", category: "crypto", basePrice: 605.0 },
@@ -16,40 +16,51 @@ export const ASSET_DIRECTORY: Asset[] = [
   { symbol: "DOGE", name: "Dogecoin (狗狗幣)", category: "crypto", basePrice: 0.16 },
 
   // --- US Stocks ---
-  { symbol: "AAPL", name: "Apple Inc. (蘋果公司)", category: "stock_us", basePrice: 182.5 },
-  { symbol: "TSLA", name: "Tesla Inc. (特斯拉)", category: "stock_us", basePrice: 178.4 },
-  { symbol: "NVDA", name: "Nvidia Corp. (輝達)", category: "stock_us", basePrice: 940.0 },
-  { symbol: "MSFT", name: "Microsoft Corp. (微軟)", category: "stock_us", basePrice: 415.6 },
-  { symbol: "GOOGL", name: "Alphabet Inc. (谷歌)", category: "stock_us", basePrice: 175.0 },
-  { symbol: "AMZN", name: "Amazon.com Inc. (亞馬遜)", category: "stock_us", basePrice: 180.0 },
-  { symbol: "META", name: "Meta Platforms (臉書)", category: "stock_us", basePrice: 480.0 },
-  { symbol: "NFLX", name: "Netflix Inc. (奈飛)", category: "stock_us", basePrice: 610.0 },
+  { symbol: "AAPL", name: "Apple Inc. (蘋果公司)", category: "stock_us", basePrice: 307.3 },
+  { symbol: "TSLA", name: "Tesla Inc. (特斯拉)", category: "stock_us", basePrice: 391.0 },
+  { symbol: "NVDA", name: "Nvidia Corp. (輝達)", category: "stock_us", basePrice: 205.1 },
+  { symbol: "MSFT", name: "Microsoft Corp. (微軟)", category: "stock_us", basePrice: 515.6 },
+  { symbol: "GOOGL", name: "Alphabet Inc. (谷歌)", category: "stock_us", basePrice: 225.0 },
+  { symbol: "AMZN", name: "Amazon.com Inc. (亞馬遜)", category: "stock_us", basePrice: 240.0 },
+  { symbol: "META", name: "Meta Platforms (臉書)", category: "stock_us", basePrice: 620.0 },
+  { symbol: "NFLX", name: "Netflix Inc. (奈飛)", category: "stock_us", basePrice: 710.0 },
 
   // --- Asia Stocks & Indices ---
-  { symbol: "2330.TW", name: "TSMC (台積電)", category: "stock_asia", basePrice: 875.0 },
-  { symbol: "2317.TW", name: "Foxconn (鴻海)", category: "stock_asia", basePrice: 180.0 },
-  { symbol: "2454.TW", name: "MediaTek (聯發科)", category: "stock_asia", basePrice: 1100.0 },
+  { symbol: "2330.TW", name: "台積電 (TSMC)", category: "stock_asia", basePrice: 2365.0 },
+  { symbol: "2317.TW", name: "鴻海 (Foxconn)", category: "stock_asia", basePrice: 284.5 },
+  { symbol: "2454.TW", name: "聯發科 (MediaTek)", category: "stock_asia", basePrice: 4300.0 },
+  { symbol: "2303.TW", name: "聯電 (UMC)", category: "stock_asia", basePrice: 85.0 },
+  { symbol: "2382.TW", name: "廣達 (Quanta)", category: "stock_asia", basePrice: 310.0 },
+  { symbol: "2412.TW", name: "中華電 (CHT)", category: "stock_asia", basePrice: 128.0 },
+  { symbol: "2881.TW", name: "富邦金 (Fubon)", category: "stock_asia", basePrice: 92.0 },
+  { symbol: "2882.TW", name: "國泰金 (Cathay)", category: "stock_asia", basePrice: 68.0 },
+  { symbol: "2603.TW", name: "長榮 (Evergreen)", category: "stock_asia", basePrice: 210.0 },
+  { symbol: "2357.TW", name: "華碩 (ASUS)", category: "stock_asia", basePrice: 540.0 },
   { symbol: "9984.T", name: "SoftBank Group (軟銀)", category: "stock_asia", basePrice: 8900.0 },
   { symbol: "7203.T", name: "Toyota Motor (豐田)", category: "stock_asia", basePrice: 3300.0 },
   { symbol: "0700.HK", name: "Tencent Holdings (騰訊)", category: "stock_asia", basePrice: 382.0 },
   { symbol: "9988.HK", name: "Alibaba Group (阿里巴巴)", category: "stock_asia", basePrice: 80.0 },
   { symbol: "005930.KS", name: "Samsung Electronics (三星電子)", category: "stock_asia", basePrice: 75000.0 },
-  { symbol: "^N225", name: "Nikkei 225 (日經225)", category: "stock_asia", basePrice: 38500.0 },
+  { symbol: "^N225", name: "Nikkei 225 (日經225)", category: "stock_asia", basePrice: 39100.0 },
   { symbol: "^HSI", name: "Hang Seng Index (恆生指數)", category: "stock_asia", basePrice: 18500.0 },
 
   // --- Futures & Commodities ---
-  { symbol: "GOLD", name: "Gold Spot (黃金現貨期貨)", category: "futures", basePrice: 2345.5 },
+  { symbol: "GOLD", name: "Gold Spot (黃金現貨期貨)", category: "futures", basePrice: 4500.0 },
   { symbol: "OIL", name: "Brent Crude Oil (布蘭特原油期貨)", category: "futures", basePrice: 82.3 },
   { symbol: "US500", name: "S&P 500 Index Futures (標普500期貨)", category: "futures", basePrice: 5280.0 },
   { symbol: "NQ=F", name: "Nasdaq 100 Futures (那指期貨)", category: "futures", basePrice: 18500.0 },
 
   // --- Taiwan ETFs ---
-  { symbol: "0050.TW", name: "Yuanta Taiwan 50 (元大台灣50)", category: "etf", basePrice: 168.5 },
-  { symbol: "0056.TW", name: "Yuanta Taiwan High Yield (元大高股息)", category: "etf", basePrice: 40.2 },
-  { symbol: "00878.TW", name: "Cathay MSCI Taiwan ESG (國泰永續高股息)", category: "etf", basePrice: 22.5 },
-  { symbol: "00919.TW", name: "Capital Carefree High Div (群益台灣精選高息)", category: "etf", basePrice: 25.8 },
-  { symbol: "00929.TW", name: "Fuh Hwa Taiwan Tech (復華台灣科技優息)", category: "etf", basePrice: 20.1 },
-  { symbol: "006208.TW", name: "Fu Bon Taiwan 50 (富邦台50)", category: "etf", basePrice: 95.0 },
+  { symbol: "0050.TW", name: "元大台灣50 (Yuanta Taiwan 50)", category: "etf", basePrice: 104.1 },
+  { symbol: "0056.TW", name: "元大高股息 (Yuanta Taiwan High Yield)", category: "etf", basePrice: 51.8 },
+  { symbol: "00878.TW", name: "國泰永續高股息 (Cathay MSCI Taiwan ESG)", category: "etf", basePrice: 22.5 },
+  { symbol: "00919.TW", name: "群益台灣精選高息 (Capital Carefree High Div)", category: "etf", basePrice: 25.8 },
+  { symbol: "00929.TW", name: "復華台灣科技優息 (Fuh Hwa Taiwan Tech)", category: "etf", basePrice: 20.1 },
+  { symbol: "006208.TW", name: "富邦台50 (Fu Bon Taiwan 50)", category: "etf", basePrice: 105.0 },
+  { symbol: "00713.TW", name: "元大台灣高息低波 (Yuanta High Div Low Vol)", category: "etf", basePrice: 55.0 },
+  { symbol: "00939.TW", name: "統一台灣高息動能 (Uni-President High Div)", category: "etf", basePrice: 15.0 },
+  { symbol: "00940.TW", name: "元大台灣價值高息 (Yuanta Value High Div)", category: "etf", basePrice: 12.5 },
+  { symbol: "00757.TW", name: "統一 FANG+ (Unified FANG+)", category: "etf", basePrice: 85.0 },
 
   // --- US ETFs ---
   { symbol: "SPY", name: "SPDR S&P 500 ETF (標普500 ETF)", category: "etf", basePrice: 525.4 },
@@ -61,6 +72,9 @@ export const ASSET_DIRECTORY: Asset[] = [
   { symbol: "DIA", name: "SPDR Dow Jones Industrial Average (道瓊 ETF)", category: "etf", basePrice: 395.2 },
   { symbol: "VT", name: "Vanguard Total World Stock (全世界股市 ETF)", category: "etf", basePrice: 110.0 },
   { symbol: "BND", name: "Vanguard Total Bond Market (美國總體債券 ETF)", category: "etf", basePrice: 72.0 },
+  
+  // --- Exchange Rates ---
+  { symbol: "USDTWD", name: "USD/TWD (美金/台幣)", category: "futures", basePrice: 32.5 },
 ];
 
 export interface Candle {
@@ -183,9 +197,15 @@ export function getYahooSymbol(symbol: string): string {
   if (symbol === "ETH") return "ETH-USD";
   if (symbol === "SOL") return "SOL-USD";
   if (symbol === "XRP") return "XRP-USD";
+  if (symbol === "BNB") return "BNB-USD";
+  if (symbol === "ADA") return "ADA-USD";
+  if (symbol === "DOGE") return "DOGE-USD";
   if (symbol === "GOLD") return "GC=F";
   if (symbol === "OIL") return "CL=F";
   if (symbol === "US500") return "ES=F";
+  if (symbol === "NQ=F") return "NQ=F";
+  if (symbol === "USDTWD") return "TWD=X";
+  // Yahoo uses .TW for Taiwan stocks and ^N225 for Nikkei, which are already in ASSET_DIRECTORY
   return symbol;
 }
 

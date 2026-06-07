@@ -1,41 +1,76 @@
 import React, { useState } from "react";
-import { TrendingUp, ShieldCheck, Zap, Layers, RefreshCw, Trash2 } from "lucide-react";
-import { TickerData, Order } from "../types";
+import { TrendingUp, ShieldCheck, Zap, Layers } from "lucide-react";
+import { Order } from "../types";
+import { useStore } from "../store/useStore";
+import { getExchangeRates } from "../utils/formatters";
 
 interface TradingPanelProps {
-  ticker: TickerData | null;
-  orders: Order[];
+  category: string;
   onPlaceOrder: (side: "BUY" | "SELL", price: number, qty: number) => void;
   orderLatency: number | null;
-  connectionStatus: "connected" | "disconnected" | "connecting";
-  lang: "zh" | "en";
-  theme: "midnight" | "milk";
   token: string | null;
   onShowLoginToast: () => void;
 }
 
 export default function TradingPanel({
-  ticker,
-  orders,
+  category,
   onPlaceOrder,
   orderLatency,
-  connectionStatus,
-  lang,
-  theme,
   token,
   onShowLoginToast,
 }: TradingPanelProps) {
+  const {
+    assets,
+    tickerDetails: ticker,
+    userOrders: orders,
+    wsStatus: connectionStatus,
+    lang,
+    theme,
+    currency,
+  } = useStore();
+
+  const { usdTwdRate, jpyTwdRate, hkdTwdRate, krwTwdRate } = getExchangeRates(assets);
+
   const [tradeType, setTradeType] = useState<"BUY" | "SELL">("BUY");
   const [priceInput, setPriceInput] = useState<string>("");
   const [qtyInput, setQtyInput] = useState<string>("1");
   const [tradeSuccessMsg, setTradeSuccessMsg] = useState<string | null>(null);
 
+  const convertPrice = (p: number) => {
+    if (!ticker) return p;
+    const isTW = ticker.symbol.endsWith(".TW") || ticker.symbol.startsWith("00");
+    const isIndex = ticker.symbol.startsWith("^");
+    const isExchangeRate = ticker.symbol.endsWith("TWD");
+    
+    if (isIndex || isExchangeRate) return p;
+    
+    // Identify asset currency
+    let assetCurrency: "USD" | "TWD" | "JPY" | "HKD" | "KRW" = "USD";
+    if (isTW) assetCurrency = "TWD";
+    else if (ticker.symbol.endsWith(".T") || ticker.symbol === "^N225") assetCurrency = "JPY";
+    else if (ticker.symbol.endsWith(".HK") || ticker.symbol === "^HSI") assetCurrency = "HKD";
+    else if (ticker.symbol.endsWith(".KS")) assetCurrency = "KRW";
+
+    // Convert to TWD first
+    let priceInTwd = p;
+    if (assetCurrency === "USD") priceInTwd = p * usdTwdRate;
+    else if (assetCurrency === "JPY") priceInTwd = p * jpyTwdRate;
+    else if (assetCurrency === "HKD") priceInTwd = p * hkdTwdRate;
+    else if (assetCurrency === "KRW") priceInTwd = p * krwTwdRate;
+
+    if (currency === "TWD") {
+      return priceInTwd;
+    } else {
+      return priceInTwd / usdTwdRate;
+    }
+  };
+
   // Sync pricing inputs on asset details loading
   React.useEffect(() => {
     if (ticker) {
-      setPriceInput(ticker.price.toString());
+      setPriceInput(convertPrice(ticker.price).toFixed(2));
     }
-  }, [ticker?.symbol]);
+  }, [ticker?.symbol, currency]);
 
   // Dictionary for localization
   const t = {
@@ -47,11 +82,10 @@ export default function TradingPanel({
       titleOrderBox: "一鍵閃電高頻交易中心 (Execution Hub)",
       buyToggle: "買入進場 (BUY)",
       sellToggle: "賣出出場 (SELL)",
-      limitLabel: "委託報價額 (Limit Price)",
-      btnFillMarket: "套用當前市價",
+      marketPriceLabel: `市價單 (Market Price)`,
       qtyLabel: "委託交易數量 (Amount Quantity)",
       estTotal: "預估交易總額",
-      btnSubmit: "一鍵送出高頻委託指令",
+      btnSubmit: "一鍵送出市價委託指令",
       unauthTrading: "⚠️ 請先登入賬戶以執行閃電高頻實盤下單撮合。",
       secNotice: "經過 Wynn In-Memory 高速暫存核實，撮合成交時間低於 1 毫秒。",
       historyTitle: "高頻交易歷史成交回報 (0.8ms Matcher Queue)",
@@ -70,11 +104,10 @@ export default function TradingPanel({
       titleOrderBox: "Wynn Instant Execution Center",
       buyToggle: "BUY Long",
       sellToggle: "SELL Short",
-      limitLabel: "Limit Price",
-      btnFillMarket: "Apply Market Price",
+      marketPriceLabel: `Market Price`,
       qtyLabel: "Transaction Quantity",
       estTotal: "Estimated Trade Total",
-      btnSubmit: "Dispatch High-Frequency Order",
+      btnSubmit: "Dispatch Market Order",
       unauthTrading: "⚠️ Authentication required. Please sign-in inside account settings to trade.",
       secNotice: "Verified via Wynn memory caches. Execution latency guarantees sub-1.4ms.",
       historyTitle: "Real-Time Transaction Report Feed",
@@ -89,49 +122,55 @@ export default function TradingPanel({
 
   const handlePlaceOrderSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token) {
+    if (!token || !ticker) {
       onShowLoginToast();
       return;
     }
 
-    const price = parseFloat(priceInput);
     const qty = parseFloat(qtyInput);
+    if (isNaN(qty) || qty <= 0) return;
 
-    if (isNaN(price) || price <= 0 || isNaN(qty) || qty <= 0) return;
-
-    onPlaceOrder(tradeType, price, qty);
+    // Market order uses the current ticker price, no need to revert, backend uses it directly
+    onPlaceOrder(tradeType, ticker.price, qty);
 
     const matchText = tradeType === "BUY" ? t.sucMsgBuy : t.sucMsgSell;
-    setTradeSuccessMsg(`⚡ [Wynn Matcher] ${ticker?.symbol}: ${matchText} (${t.latencyText} ${orderLatency || "0.4"}ms)`);
+    setTradeSuccessMsg(`⚡ [Wynn Matcher] ${ticker.symbol}: ${matchText} (${t.latencyText} ${orderLatency || "0.4"}ms)`);
 
     setTimeout(() => {
       setTradeSuccessMsg(null);
     }, 4500);
   };
 
-  const fillMarketPrice = () => {
-    if (ticker) {
-      setPriceInput(ticker.price.toString());
-    }
-  };
-
-  // Build authentic depth values
+  // Build stable-random depth values
   const generateOrderBook = () => {
     if (!ticker) return { asks: [], bids: [] };
-    const step = ticker.price * 0.0004 || 0.05;
+
+    // Simple seed function from string
+    const seededRandom = (seedStr: string) => {
+      let h = 1779033703, i = 0, l = seedStr.length;
+      for (; i < l; i++) {
+        h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353);
+      }
+      return (h = h ^ h >>> 16, h = Math.imul(h, 4283543521), (h ^= h >>> 15) >>> 0) / 4294967296;
+    }
+
+    const basePrice = ticker.price;
+    const step = basePrice * 0.0004 || 0.05;
     const asks = [];
     const bids = [];
 
     for (let i = 4; i >= 1; i--) {
+      const p = basePrice + step * i;
       asks.push({
-        price: ticker.price + step * i,
-        qty: Math.floor(Math.random() * 120) + 12,
+        price: convertPrice(p),
+        qty: Math.floor(seededRandom(`${ticker.symbol}-ask-${i}`) * 120) + 12,
       });
     }
     for (let i = 1; i <= 4; i++) {
+      const p = basePrice - step * i;
       bids.push({
-        price: ticker.price - step * i,
-        qty: Math.floor(Math.random() * 120) + 12,
+        price: convertPrice(p),
+        qty: Math.floor(seededRandom(`${ticker.symbol}-bid-${i}`) * 120) + 12,
       });
     }
     return { asks, bids };
@@ -142,7 +181,6 @@ export default function TradingPanel({
   // Aesthetics Configurations
   const isMidnight = theme === "midnight";
   const cardBgClass = isMidnight ? "bg-[#1e293b] border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800";
-  const textTitleClass = isMidnight ? "text-slate-200" : "text-slate-800";
   const labelTextClass = isMidnight ? "text-slate-400" : "text-slate-500";
   const inputBgClass = isMidnight ? "bg-slate-950 border-slate-800 text-slate-100 placeholder-slate-600 focus:border-cyan-500" : "bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-blue-500";
 
@@ -185,7 +223,8 @@ export default function TradingPanel({
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-400 font-sans">{t.lastPrice}</span>
                 <span className={`font-bold text-sm ${isMidnight ? "text-slate-100" : "text-slate-950"}`}>
-                  {ticker.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {currency === "TWD" ? "NT$" : "$"}
+                  {convertPrice(ticker.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="text-right flex flex-col">
@@ -264,36 +303,18 @@ export default function TradingPanel({
               </button>
             </div>
 
-            {/* Price Row */}
+            {/* Market Price Display */}
             <div className="space-y-1">
-              <div className="flex justify-between items-center text-[10px]">
-                <label className={`font-semibold uppercase ${labelTextClass}`}>{t.limitLabel}</label>
-                <button
-                  type="button"
-                  onClick={fillMarketPrice}
-                  className="text-[10px] text-blue-500 dark:text-cyan-400 hover:underline font-mono flex items-center gap-0.5"
-                >
-                  <RefreshCw className="w-2.5 h-2.5" /> {t.btnFillMarket} ({ticker.price})
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  id="trade-price-input"
-                  type="number"
-                  step="any"
-                  required
-                  value={priceInput}
-                  onChange={(e) => setPriceInput(e.target.value)}
-                  className={`w-full text-xs px-3 py-2 rounded-lg border outline-none font-mono ${inputBgClass}`}
-                />
-                <span className="absolute right-3 top-2 text-[10px] font-mono text-slate-400">USD</span>
+              <label className={`text-[10px] font-semibold uppercase ${labelTextClass}`}>{t.marketPriceLabel}</label>
+              <div className={`w-full text-sm px-3 py-2 rounded-lg border font-mono ${inputBgClass}`}>
+                ~ {convertPrice(ticker.price).toFixed(2)} {currency}
               </div>
             </div>
 
             {/* Quantity Row */}
             <div className="space-y-1">
               <label className={`text-[10px] font-semibold uppercase ${labelTextClass}`}>{t.qtyLabel}</label>
-              <div className="relative">
+              <div className="relative mb-2">
                 <input
                   id="trade-qty-input"
                   type="number"
@@ -302,9 +323,27 @@ export default function TradingPanel({
                   required
                   value={qtyInput}
                   onChange={(e) => setQtyInput(e.target.value)}
-                  className={`w-full text-xs px-3 py-2 rounded-lg border outline-none font-mono ${inputBgClass}`}
+                  className={`w-full text-sm font-bold px-3 py-2.5 rounded-lg border outline-none font-mono text-center transition-colors ${
+                    tradeType === "BUY" ? "focus:border-emerald-500" : "focus:border-rose-500"
+                  } ${inputBgClass}`}
                 />
-                <span className="absolute right-3 top-2 text-[10px] font-mono text-slate-400">Unit</span>
+                <span className="absolute right-3 top-2.5 text-[10px] font-mono text-slate-400 mt-0.5">Unit</span>
+              </div>
+              
+              {/* Quick QTY Buttons */}
+              <div className="flex gap-1.5 justify-between">
+                {[1, 10, 100, 1000].map(val => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setQtyInput(val.toString())}
+                    className={`flex-1 text-[9px] font-mono font-bold py-1 rounded border transition ${
+                      isMidnight ? "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200"
+                    }`}
+                  >
+                    {val}x
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -313,11 +352,11 @@ export default function TradingPanel({
               isMidnight ? "bg-slate-950/60 border-slate-850" : "bg-slate-50 border-slate-100"
             }`}>
               <span className="text-slate-400">{t.estTotal}</span>
-              <span className="font-mono text-slate-100 dark:text-slate-950">
-                {((parseFloat(priceInput) || 0) * (parseFloat(qtyInput) || 0)).toLocaleString(undefined, {
+              <span className={`font-mono ${isMidnight ? "text-slate-100" : "text-slate-900"}`}>
+                {((ticker.price || 0) * (parseFloat(qtyInput) || 0)).toLocaleString(undefined, {
                   maximumFractionDigits: 2,
                 })}{" "}
-                USD
+                {currency}
               </span>
             </div>
 
@@ -326,15 +365,15 @@ export default function TradingPanel({
               id="place-order-submit-btn"
               type="submit"
               disabled={connectionStatus !== "connected" || !token}
-              className={`w-full py-2.5 text-xs font-bold text-white shadow-md rounded-lg cursor-pointer transition ${
+              className={`w-full py-3.5 text-[13px] font-black tracking-widest uppercase text-white shadow-lg rounded-xl cursor-pointer transition-all transform active:scale-[0.98] ${
                 connectionStatus !== "connected" || !token
-                  ? "bg-slate-300 dark:bg-slate-850 dark:text-slate-500 cursor-not-allowed"
+                  ? "bg-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed shadow-none"
                   : tradeType === "BUY"
-                  ? "bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg"
-                  : "bg-rose-600 hover:bg-rose-700 hover:shadow-lg"
+                  ? "bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 shadow-emerald-500/30"
+                  : "bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 shadow-rose-500/30"
               }`}
             >
-              {t.btnSubmit}
+              {t.btnSubmit} {tradeType}
             </button>
           </form>
         ) : (

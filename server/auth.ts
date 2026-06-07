@@ -1,10 +1,19 @@
-import { Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { dbGet, dbRun } from "./db";
+import { validate, RegisterSchema, LoginSchema } from "./validation";
 
 // Fallback JWT secret for standard environments
-export const JWT_SECRET = process.env.JWT_SECRET || "WYNN_FINANCE_JWT_SECRET_KEY_2.0_2026";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables. Please set it in your .env file.");
+  process.exit(1);
+}
+
+export const authRouter = Router();
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -19,10 +28,6 @@ export function authenticateToken(req: AuthenticatedRequest, res: Response, next
   const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
-    // If no token is provided, we still allow some public routes or handle it in the route itself
-    // But for routes that use this middleware, they usually expect a user.
-    // To maintain compatibility with the "Admin" bypass for specific local development, 
-    // we could check an environment variable, but it's safer to require a token.
     return res.status(401).json({ success: false, message: "Authentication token required." });
   }
 
@@ -46,39 +51,24 @@ export function verifyWebSocketToken(token: string): { id: string; username: str
 }
 
 // Authentication Controllers
-export async function handleRegister(req: Request, res: Response) {
+async function handleRegister(req: Request, res: Response) {
   const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: "Username and password are required fields." });
-  }
-
   const trimmedUsername = username.trim().toLowerCase();
-  
-  if (trimmedUsername.length < 3 || password.length < 5) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Username must match at least 3 characters. Password must be 5+ characters." 
-    });
-  }
 
   try {
-    // Check if user exists
     const user = await dbGet("SELECT id FROM users WHERE username = ?", [trimmedUsername]);
     if (user) {
       return res.status(409).json({ success: false, message: "Username already registered in Wynn Finance." });
     }
 
-    // Securely hash password with pure-js bcrypt
     const passwordHash = await bcrypt.hash(password, 10);
-    const userId = `U-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const userId = crypto.randomUUID();
 
     await dbRun(
       "INSERT INTO users (id, username, passwordHash, createdAt) VALUES (?, ?, ?, ?)",
       [userId, trimmedUsername, passwordHash, Date.now()]
     );
 
-    // Dynamic JWT credential generation
     const token = jwt.sign({ id: userId, username: trimmedUsername }, JWT_SECRET, { expiresIn: "7d" });
 
     res.status(201).json({
@@ -93,13 +83,8 @@ export async function handleRegister(req: Request, res: Response) {
   }
 }
 
-export async function handleLogin(req: Request, res: Response) {
+async function handleLogin(req: Request, res: Response) {
   const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: "Username and password are required fields." });
-  }
-
   const trimmedUsername = username.trim().toLowerCase();
 
   try {
@@ -113,7 +98,6 @@ export async function handleLogin(req: Request, res: Response) {
       return res.status(401).json({ success: false, message: "Invalid username or password credentials." });
     }
 
-    // Sign Access JWT key
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "7d" });
 
     res.json({
@@ -127,3 +111,8 @@ export async function handleLogin(req: Request, res: Response) {
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 }
+
+// --- Mount routes with validation ---
+authRouter.post("/register", validate(RegisterSchema), handleRegister);
+authRouter.post("/login", validate(LoginSchema), handleLogin);
+

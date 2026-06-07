@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
+import crypto from "crypto";
 import { verifyWebSocketToken } from "./auth";
 import { ASSET_DIRECTORY, database, getAssetCandles, getMarketStatus } from "./prices";
 import { dbRun, dbGet } from "./db";
@@ -10,11 +11,17 @@ export function setupWebSocket(wss: WebSocketServer) {
     // WebSocket JWT Authentication Verification
     // -------------------------------------------------------------
     const requestUrl = request.url || "";
-    // Parse URL with dummy origin to extract query string
     const urlPattern = new URL(requestUrl, "http://localhost:3000");
     const token = urlPattern.searchParams.get("token") || "";
 
-    const decodedUser = verifyWebSocketToken(token) || { id: "U-MASTER-USER", username: "Admin" };
+    const decodedUser = verifyWebSocketToken(token);
+
+    if (!decodedUser) {
+      console.warn(`[WebSocket] Unauthorized connection attempt blocked.`);
+      ws.send(JSON.stringify({ type: "ERROR", message: "Unauthorized: Missing or invalid token." }));
+      ws.close(4001, "Unauthorized");
+      return;
+    }
 
     console.log(`[WebSocket] Authorized Session opened: user "${decodedUser.username}" (ID: ${decodedUser.id})`);
 
@@ -38,19 +45,16 @@ export function setupWebSocket(wss: WebSocketServer) {
 
           getAssetCandles(symbol, timeframe, asset.basePrice)
             .then((candles) => {
-              const ticker = database.get(symbol);
-              if (ticker) {
-                ticker.candles = candles;
-                if (candles.length > 0) {
-                  const lastCandle = candles[candles.length - 1];
-                  ticker.price = lastCandle.close;
-                  ticker.high = Math.max(...candles.map((c) => c.high));
-                  ticker.low = Math.min(...candles.map((c) => c.low));
-                  const firstCandle = candles[0];
-                  ticker.changeAmount = lastCandle.close - firstCandle.open;
-                  ticker.changePercent = (ticker.changeAmount / firstCandle.open) * 100;
+              // Important: We do NOT overwrite ticker.candles globally with historical data
+              // Instead, we only send the requested historical data to the client.
+              // We only update ticker.candles if it matches the current real-time timeframe (e.g. 1m)
+              if (timeframe === "1m") {
+                const ticker = database.get(symbol);
+                if (ticker) {
+                  ticker.candles = JSON.parse(JSON.stringify(candles)); // Deep copy
                 }
               }
+              
               ws.send(
                 JSON.stringify({
                   type: "HISTORY_DATA",
@@ -78,13 +82,12 @@ export function setupWebSocket(wss: WebSocketServer) {
           // Low latency transaction executor
           const symbol = (message.symbol || "BTC").toUpperCase();
           const side = message.side || "BUY";
-          const requestedPrice = Number(message.price);
           const qty = Number(message.qty) || 1;
 
           const ticker = database.get(symbol);
           if (ticker) {
             const executedPrice = ticker.price;
-            const orderId = `TX-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+            const orderId = crypto.randomUUID();
             const timestamp = Date.now();
 
             // Store inside SQLite immediately to guarantee persistence
@@ -148,11 +151,8 @@ export function startMarketSimulation(wss: WebSocketServer) {
   setInterval(() => {
     // Select a subset of assets to update in each tick for performance
     const symbols = Array.from(database.keys());
-    const randomSymbols = symbols
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 5);
-
-    randomSymbols.forEach((symbol) => {
+    
+    symbols.forEach((symbol) => {
       const ticker = database.get(symbol);
       if (!ticker) return;
 
@@ -160,15 +160,17 @@ export function startMarketSimulation(wss: WebSocketServer) {
       const mStatus = getMarketStatus(symbol);
       if (!mStatus.isOpen) return;
 
-      // Extremely low volatility for non-crypto to avoid "phantom jitter"
       const isCrypto = ASSET_DIRECTORY.find(a => a.symbol === symbol)?.category === "crypto";
-      const baseVolatility = isCrypto ? 0.0003 : 0.00008;
       
-      const changePercent = (Math.random() - 0.5) * baseVolatility;
-      const multiplier = 1 + changePercent;
+      // REAL PRICE TRACKING: 
+      // We add a tiny jitter to make it look "live", but we no longer random walk away from real prices.
+      const volatility = isCrypto ? 0.0001 : 0.00003;
+      const randomChange = (Math.random() - 0.5) * volatility;
+      
+      const currentPrice = ticker.price;
+      const jitterPrice = currentPrice * (1 + randomChange);
 
-      const oldPrice = ticker.price;
-      const newPrice = Number((oldPrice * multiplier).toFixed(
+      const newPrice = Number(jitterPrice.toFixed(
         ticker.price > 1000 ? 1 : ticker.price < 5 ? 4 : 2
       ));
 
@@ -177,27 +179,26 @@ export function startMarketSimulation(wss: WebSocketServer) {
       const bidPrice = Number((newPrice - spreadBase / 2).toFixed(2));
       const askPrice = Number((newPrice + spreadBase / 2).toFixed(2));
       
-      const latestCandles = [...ticker.candles];
-      if (latestCandles.length > 0) {
-        const last = latestCandles[latestCandles.length - 1];
+      // FIX: Use deep copy for candle object mutation
+      if (ticker.candles.length > 0) {
+        const lastIdx = ticker.candles.length - 1;
+        const last = { ...ticker.candles[lastIdx] };
         last.close = newPrice;
         if (newPrice > last.high) last.high = newPrice;
         if (newPrice < last.low) last.low = newPrice;
-        // Moderate volume growth
-        last.volume += Math.floor(Math.random() * 5) + 1;
+        last.volume += Math.floor(Math.random() * 2) + 1;
+        ticker.candles[lastIdx] = last;
       }
 
-      const firstCandle = latestCandles[0];
-      const changeAmount = newPrice - firstCandle.open;
-      const changePercentTotal = (changeAmount / firstCandle.open) * 100;
-
       ticker.price = newPrice;
-      ticker.changeAmount = changeAmount;
-      ticker.changePercent = changePercentTotal;
-      ticker.high = Math.max(...latestCandles.map((c) => c.high));
-      ticker.low = Math.min(...latestCandles.map((c) => c.low));
       ticker.bidPrice = bidPrice;
       ticker.askPrice = askPrice;
+
+      const firstCandle = ticker.candles[0];
+      ticker.changeAmount = newPrice - (firstCandle?.open || newPrice);
+      ticker.changePercent = firstCandle ? (ticker.changeAmount / firstCandle.open) * 100 : 0;
+      ticker.high = Math.max(...ticker.candles.map((c) => c.high));
+      ticker.low = Math.min(...ticker.candles.map((c) => c.low));
 
       // Only broadcast ticks to authorized users who are currently connected
       const tickPayload = JSON.stringify({
@@ -221,5 +222,5 @@ export function startMarketSimulation(wss: WebSocketServer) {
         }
       });
     });
-  }, 1000); // Increased interval to 1000ms for stability and performance
+  }, 500);
 }
