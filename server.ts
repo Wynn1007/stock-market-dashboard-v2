@@ -100,115 +100,85 @@ const marketOpenStates = new Map<string, boolean>();
 async function syncRealPricesFromYahoo() {
   try {
     const symbolsList = ASSET_DIRECTORY.map((asset) => getYahooSymbol(asset.symbol));
-    const extraRates = ["JPYTWD=X", "HKDTWD=X", "KRWTWD=X"];
-    const fullSymbols = [...new Set([...symbolsList, ...extraRates])];
     
-    // Yahoo often requires a Cookie/Crumb now. We attempt with refined headers.
-    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Referer": "https://finance.yahoo.com/",
-      },
-    });
-
-    if (res.status === 401) {
-      console.warn("[Yahoo Sync] 401 Unauthorized detected. Attempting fallback to query1...");
-      const fallbackUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
-      const fallbackRes = await fetch(fallbackUrl, {
-        headers: { "User-Agent": "PostmanRuntime/7.39.0", "Referer": "https://finance.yahoo.com/" }
-      });
-      if (!fallbackRes.ok) throw new Error(`Yahoo Fallback HTTP error: ${fallbackRes.status}`);
-      var json: any = await fallbackRes.json();
-    } else if (!res.ok) {
-      throw new Error(`Yahoo HTTP quote error: ${res.status}`);
-    } else {
-      var json: any = await res.json();
-    }
-
-    const results = json?.quoteResponse?.result || [];
-
-    for (const quote of results) {
-      const yahooSymbol = quote.symbol;
-      let symbol = REVERSE_YAHOO_MAPPING[yahooSymbol];
-      
-      if (!symbol) {
-        const found = ASSET_DIRECTORY.find(a => getYahooSymbol(a.symbol) === yahooSymbol);
-        symbol = found ? found.symbol : yahooSymbol;
-      }
-      
-      // Auto-initialize if it's an exchange rate we need
-      if (!database.has(symbol) && symbol.endsWith("TWD")) {
-        database.set(symbol, {
-          symbol,
-          price: quote.regularMarketPrice || 1,
-          open: quote.regularMarketOpen || 1,
-          high: quote.regularMarketDayHigh || 1,
-          low: quote.regularMarketDayLow || 1,
-          close: quote.regularMarketPrice || 1,
-          volume: 0,
-          changeAmount: 0,
-          changePercent: 0,
-          bidPrice: quote.regularMarketPrice || 1,
-          askPrice: quote.regularMarketPrice || 1,
-          bidSize: 0,
-          askSize: 0,
-          candles: [],
+    for (const yahooSymbol of symbolsList) {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1m&range=1d`;
+        let res = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Referer": "https://finance.yahoo.com/",
+          },
         });
-      }
 
-      const ticker = database.get(symbol);
-      if (ticker) {
-        // --- Market Open Calibration & Chart Sync Logic ---
-        const { isOpen } = getMarketStatus(symbol);
-        const wasOpen = marketOpenStates.get(symbol) || false;
-        
-        // If price delta is huge or market just transitioned to open, force a full chart re-sync
-        const currentPrice = quote.regularMarketPrice || ticker.price;
-        const priceGap = Math.abs(ticker.price - currentPrice) / (ticker.price || 1);
-        const shouldSyncCharts = (isOpen && !wasOpen) || priceGap > 0.05;
+        let currentPrice, prevClose, changeAmount, changePercent, volume;
 
-        if (shouldSyncCharts) {
-          console.log(`[Calibration] Market event detected for ${symbol} (Price Gap: ${(priceGap*100).toFixed(2)}%). Synchronizing historical chart data...`);
-          try {
-            const freshCandles = await getAssetCandles(symbol, "1m", currentPrice);
-            ticker.candles = freshCandles;
-          } catch (e) {
-            console.error(`[Calibration Error] Chart sync failed for ${symbol}`);
-          }
-        }
-        marketOpenStates.set(symbol, isOpen);
-
-        if (quote.regularMarketPrice !== undefined) ticker.price = quote.regularMarketPrice;
-        if (quote.regularMarketOpen !== undefined) ticker.open = quote.regularMarketOpen;
-        if (quote.regularMarketDayHigh !== undefined) ticker.high = quote.regularMarketDayHigh;
-        if (quote.regularMarketDayLow !== undefined) ticker.low = quote.regularMarketDayLow;
-        if (quote.regularMarketChange !== undefined) ticker.changeAmount = quote.regularMarketChange;
-        if (quote.regularMarketChangePercent !== undefined) ticker.changePercent = quote.regularMarketChangePercent;
-        if (quote.regularMarketVolume !== undefined) ticker.volume = quote.regularMarketVolume;
-
-        // Sync candles with new price
-        if (ticker.candles.length > 0 && quote.regularMarketPrice !== undefined) {
-          const lastIdx = ticker.candles.length - 1;
-          const last = { ...ticker.candles[lastIdx] };
-          last.close = ticker.price;
-          if (ticker.price > last.high) last.high = ticker.price;
-          if (ticker.price < last.low) last.low = ticker.price;
-          ticker.candles[lastIdx] = last;
+        if (res.status === 401 || res.status === 403) {
+            // ULTIMATE FALLBACK: Scrape the HTML page
+            const scrapeUrl = `https://finance.yahoo.com/quote/${yahooSymbol}`;
+            const scrapeRes = await fetch(scrapeUrl, {
+                headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" }
+            });
+            if (!scrapeRes.ok) continue;
+            const html = await scrapeRes.text();
+            
+            // Extract price using regex from the 'regularMarketPrice' data attribute or JSON blob
+            const priceMatch = html.match(/"regularMarketPrice":\s*\{\s*"raw":\s*([\d.]+)/);
+            const prevCloseMatch = html.match(/"regularMarketPreviousClose":\s*\{\s*"raw":\s*([\d.]+)/);
+            
+            if (priceMatch && priceMatch[1]) {
+                currentPrice = parseFloat(priceMatch[1]);
+                prevClose = prevCloseMatch ? parseFloat(prevCloseMatch[1]) : currentPrice;
+                changeAmount = currentPrice - prevClose;
+                changePercent = (changeAmount / prevClose) * 100;
+                volume = 0; // Volume is harder to regex reliably, keep existing
+            } else {
+                continue;
+            }
+        } else if (res.ok) {
+            const data: any = await res.json();
+            const meta = data?.chart?.result?.[0]?.meta;
+            if (!meta) continue;
+            currentPrice = meta.regularMarketPrice;
+            prevClose = meta.previousClose;
+            changeAmount = currentPrice - prevClose;
+            changePercent = (changeAmount / prevClose) * 100;
+            volume = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.volume?.slice(-1)[0] || 0;
+        } else {
+            continue;
         }
 
-        const spread = symbol === "BTC" ? 2.5 : symbol === "ETH" ? 0.4 : ticker.price * 0.0005;
-        ticker.bidPrice = Number((ticker.price - spread / 2).toFixed(2));
-        ticker.askPrice = Number((ticker.price + spread / 2).toFixed(2));
-      }
+        let symbol = REVERSE_YAHOO_MAPPING[yahooSymbol];
+        if (!symbol) {
+            const found = ASSET_DIRECTORY.find(a => getYahooSymbol(a.symbol) === yahooSymbol);
+            symbol = found ? found.symbol : yahooSymbol;
+        }
+
+        const ticker = database.get(symbol);
+        if (ticker && currentPrice) {
+            ticker.price = currentPrice;
+            ticker.changeAmount = changeAmount || ticker.changeAmount;
+            ticker.changePercent = changePercent || ticker.changePercent;
+            ticker.volume = volume || ticker.volume;
+
+            if (ticker.candles.length > 0) {
+                const lastIdx = ticker.candles.length - 1;
+                const last = { ...ticker.candles[lastIdx] };
+                last.close = currentPrice;
+                if (currentPrice > last.high) last.high = currentPrice;
+                if (currentPrice < last.low) last.low = currentPrice;
+                ticker.candles[lastIdx] = last;
+            }
+
+            const spread = symbol === "BTC" ? 2.5 : symbol === "ETH" ? 0.4 : ticker.price * 0.0005;
+            ticker.bidPrice = Number((ticker.price - spread / 2).toFixed(2));
+            ticker.askPrice = Number((ticker.price + spread / 2).toFixed(2));
+        }
+      } catch (err: any) {}
     }
-    console.log(`[Yahoo Live Sync] Synced ${results.length} real asset prices.`);
+    console.log(`[Yahoo Live Sync] Sync cycle completed for ${symbolsList.length} assets.`);
   } catch (err: any) {
-    console.warn(`[Yahoo Live Sync Warning] Could not load live ticker prices:`, err.message);
+    console.warn(`[Yahoo Live Sync Warning] Sync loop failed:`, err.message);
   }
 }
 

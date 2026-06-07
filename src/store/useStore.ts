@@ -35,6 +35,10 @@ interface MarketState {
   showOnlyWatchlist: boolean;
   newsLoading: boolean;
 
+  // WebSocket Methods
+  sendWSMessage: (msg: any) => void;
+  setSendWSMessage: (fn: (msg: any) => void) => void;
+
   // Actions
   setToken: (token: string | null, username: string | null) => void;
   setWsStatus: (status: MarketState['wsStatus']) => void;
@@ -53,7 +57,7 @@ interface MarketState {
   fetchUserData: () => Promise<void>;
   fetchNews: () => Promise<void>;
   
-  // WebSocket Actions
+  // WebSocket Handlers
   handleWebSocketMessage: (message: any) => void;
   updateAssetPrice: (symbol: string, price: number, changePercent: number) => void;
   updateTickerHistory: (symbol: string, candles: Candle[]) => void;
@@ -88,6 +92,10 @@ export const useStore = create<MarketState>()(
     searchQuery: "",
     showOnlyWatchlist: false,
     newsLoading: false,
+
+    // ========= WebSocket Methods =========
+    sendWSMessage: () => {},
+    setSendWSMessage: (fn) => set({ sendWSMessage: fn }),
 
     // ========= Actions =========
     setToken: (token, username) => {
@@ -136,7 +144,6 @@ export const useStore = create<MarketState>()(
       } catch (err) {
         console.error("Asset loader error:", err);
       }
-      // If logged in, fetch user data as well
       if (get().token) {
         get().fetchUserData();
       }
@@ -185,7 +192,7 @@ export const useStore = create<MarketState>()(
       }
     },
     
-    // ========= WebSocket Actions =========
+    // ========= WebSocket Handlers =========
     handleWebSocketMessage: (msg) => {
       const { selectedSymbol } = get();
       switch (msg.type) {
@@ -208,11 +215,8 @@ export const useStore = create<MarketState>()(
            }
           break;
         case 'ORDER_EXECUTED':
-          // Re-fetch orders to get the latest state
           get().fetchUserData(); 
           break;
-        default:
-          // console.log("Unhandled WS message type:", msg.type);
       }
     },
     
@@ -230,23 +234,18 @@ export const useStore = create<MarketState>()(
         set(state => {
             const lastCandle = candles[candles.length - 1];
             const firstCandle = candles[0];
-            const high = Math.max(...candles.map(c => c.high));
-            const low = Math.min(...candles.map(c => c.low));
             const price = lastCandle?.close || 0;
-            const open = firstCandle?.open || 0;
-            const changeAmount = price - open;
-            const changePercent = open !== 0 ? (changeAmount / open) * 100 : 0;
-
+            const open = firstCandle?.open || price;
             state.tickerDetails = {
                 symbol,
                 price,
                 open,
-                high,
-                low,
+                high: Math.max(...candles.map(c => c.high)),
+                low: Math.min(...candles.map(c => c.low)),
                 close: price,
                 volume: candles.reduce((acc, c) => acc + c.volume, 0),
-                changeAmount,
-                changePercent,
+                changeAmount: price - open,
+                changePercent: open !== 0 ? ((price - open) / open) * 100 : 0,
                 bidPrice: price * 0.9995,
                 askPrice: price * 1.0005,
                 bidSize: 100,
@@ -256,39 +255,25 @@ export const useStore = create<MarketState>()(
         });
     },
 
-    // ========= User-specific actions =========
     toggleWatchlist: async (symbol: string) => {
       const { token, watchlist } = get();
       if (!token) {
         set({ showLoginPrompt: true });
         return;
       }
-      
       const isWatched = watchlist.includes(symbol);
-      // Optimistic update
       set(state => {
-          if(isWatched) {
-              state.watchlist = state.watchlist.filter(s => s !== symbol);
-          } else {
-              state.watchlist.push(symbol);
-          }
+          if(isWatched) state.watchlist = state.watchlist.filter(s => s !== symbol);
+          else state.watchlist.push(symbol);
       });
-      
       try {
-        await fetch(`/api/watchlist/${symbol}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+        await fetch(`/api/watchlist`, {
+          method: isWatched ? 'DELETE' : 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ symbol })
         });
       } catch (e) {
         console.error("Failed to update watchlist", e);
-        // Revert on failure
-        set(state => {
-          if(isWatched) {
-              state.watchlist.push(symbol);
-          } else {
-              state.watchlist = state.watchlist.filter(s => s !== symbol);
-          }
-        });
       }
     },
   }))
