@@ -4,8 +4,8 @@ import { Asset } from '../types';
 
 describe('formatPrice', () => {
   const mockAssets: Asset[] = [
-    { symbol: 'BTC', name: 'Bitcoin', category: 'crypto', price: 68000, changePercent: 1.5, high: 69000, low: 67000 },
-    { symbol: '2330.TW', name: 'TSMC', category: 'stock_asia', price: 900, changePercent: -0.5, high: 905, low: 899 },
+    { symbol: 'BTC', name: 'Bitcoin', category: 'crypto', price: 68000, changePercent: 1.5, high: 69000, low: 67000, basePrice: 60000 },
+    { symbol: '2330.TW', name: 'TSMC', category: 'stock_asia', price: 900, changePercent: -0.5, high: 905, low: 899, basePrice: 850 },
   ];
 
   const mockRates = {

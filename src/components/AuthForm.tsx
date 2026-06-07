@@ -1,99 +1,85 @@
-// src/components/AuthForm.tsx
-import React, { useState } from "react";
-import { Shield, X } from "lucide-react";
-import { useTranslation } from "../hooks/useTranslation";
-import { useAuth } from "../hooks/useAuth";
+import React, { useState } from 'react';
+import { useStore } from '../store/useStore';
+import { useTranslation } from '../hooks/useTranslation';
 
-interface AuthFormProps {
-  lang: "zh" | "en";
-  onClose: () => void;
-}
+export default function AuthForm() {
+    const { setToken, setActiveTab } = useStore(state => ({
+        setToken: state.setToken,
+        setActiveTab: state.setActiveTab
+    }));
+    const { t } = useTranslation();
+    const [isRegister, setIsRegister] = useState(false);
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
 
-export default function AuthForm({ lang, onClose }: AuthFormProps) {
-  const { t } = useTranslation(lang);
-  const { 
-    authError, 
-    authSuccess, 
-    handleLoginSubmit, 
-    handleRegisterSubmit,
-  } = useAuth(lang);
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setSuccess('');
 
-  const [loginUser, setLoginUser] = useState("");
-  const [loginPass, setLoginPass] = useState("");
-  const [regUser, setRegUser] = useState("");
-  const [regPass, setRegPass] = useState("");
-  
-  const isMidnight = true; // Assuming modal is always on a dark overlay
-  const inputClass = isMidnight 
-    ? "bg-slate-950 border-slate-850 text-slate-100 placeholder-slate-700 focus:border-cyan-500" 
-    : "bg-slate-50 border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20";
+        const url = isRegister ? '/api/auth/register' : '/api/auth/login';
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                if (isRegister) {
+                    setSuccess(t.auth.registerSuccess);
+                    setIsRegister(false); // Switch to login view after successful registration
+                } else {
+                    setSuccess(t.auth.loginSuccess);
+                    setToken(data.token, data.username);
+                    setTimeout(() => setActiveTab("trading"), 1000); // Redirect to trading after login
+                }
+            } else {
+                setError(data.error || 'An unknown error occurred.');
+            }
+        } catch (err) {
+            setError('Failed to connect to the server.');
+        }
+    };
 
-
-  const onLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const success = await handleLoginSubmit(e, loginUser, loginPass);
-    if (success) {
-      setLoginUser("");
-      setLoginPass("");
-      setTimeout(() => onClose(), 1500); // Close modal on success
-    }
-  };
-
-  const onRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const success = await handleRegisterSubmit(e, regUser, regPass);
-    if (success) {
-      setRegUser("");
-      setRegPass("");
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div 
-        className={`p-5 rounded-2xl border bg-[#131a26] border-slate-800 shadow-lg max-w-sm w-full space-y-4 transform transition-all duration-300 scale-100`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-between items-center">
-          <h3 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2">
-            <Shield className="w-4 h-4 text-blue-500 dark:text-cyan-400" />
-            {t.authCard}
-          </h3>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-800">
-            <X className="w-4 h-4 text-slate-500"/>
-          </button>
+    return (
+        <div className="max-w-md mx-auto mt-10">
+            <h2 className="text-2xl font-bold text-center mb-6">{isRegister ? t.auth.register : t.auth.login}</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium mb-1">{t.auth.username}</label>
+                    <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md dark:bg-slate-800 dark:border-slate-700"
+                        required
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium mb-1">{t.auth.password}</label>
+                    <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md dark:bg-slate-800 dark:border-slate-700"
+                        required
+                    />
+                </div>
+                {error && <p className="text-red-500 text-sm">{error}</p>}
+                {success && <p className="text-green-500 text-sm">{success}</p>}
+                <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 dark:bg-cyan-500 dark:hover:bg-cyan-600">
+                    {isRegister ? t.auth.register : t.auth.login}
+                </button>
+            </form>
+            <p className="text-center text-sm mt-4">
+                {isRegister ? 'Already have an account?' : "Don't have an account?"}
+                <button onClick={() => setIsRegister(!isRegister)} className="text-blue-600 dark:text-cyan-400 hover:underline ml-1">
+                    {isRegister ? t.auth.login : t.auth.register}
+                </button>
+            </p>
         </div>
-
-        {authError && <div className="p-3 bg-rose-500/10 text-rose-500 text-xs font-semibold rounded-lg border border-rose-500/20">{authError}</div>}
-        {authSuccess && <div className="p-3 bg-emerald-500/10 text-emerald-500 text-xs font-semibold rounded-lg border border-emerald-500/20">{authSuccess}</div>}
-        
-        <form onSubmit={onLogin} className="space-y-3">
-          <p className="text-xs text-slate-400">{t.authSubtitle}</p>
-          <div>
-            <label className="text-[10px] font-bold text-slate-400">{t.usernameLabel}</label>
-            <input type="text" value={loginUser} onChange={e => setLoginUser(e.target.value)} className={`w-full text-sm px-3 py-2 rounded-lg mt-1 ${inputClass}`} />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-400">{t.passwordLabel}</label>
-            <input type="password" value={loginPass} onChange={e => setLoginPass(e.target.value)} className={`w-full text-sm px-3 py-2 rounded-lg mt-1 ${inputClass}`} />
-          </div>
-          <button type="submit" className={`w-full py-2 rounded-lg font-bold text-sm bg-cyan-500 text-slate-900`}>{t.loginBtn}</button>
-        </form>
-
-        <hr className="border-slate-800" />
-
-        <form onSubmit={onRegister} className="space-y-3">
-           <div>
-            <label className="text-[10px] font-bold text-slate-400">{t.usernameLabel}</label>
-            <input type="text" value={regUser} onChange={e => setRegUser(e.target.value)} className={`w-full text-sm px-3 py-2 rounded-lg mt-1 ${inputClass}`} />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-400">{t.passwordLabel}</label>
-            <input type="password" value={regPass} onChange={e => setRegPass(e.target.value)} className={`w-full text-sm px-3 py-2 rounded-lg mt-1 ${inputClass}`} />
-          </div>
-          <button type="submit" className={`w-full py-2 rounded-lg font-bold text-sm bg-slate-800 text-white`}>{t.registerBtn}</button>
-        </form>
-      </div>
-    </div>
-  );
+    );
 }

@@ -10,12 +10,14 @@ export function getExchangeRates(assets: Asset[]) {
 }
 
 export function formatPrice(
-    price: number, 
+    price: number | undefined | null, 
     symbol: string, 
     currency: "TWD" | "USD", 
     assets: Asset[], 
     rates: { usdTwdRate: number, jpyTwdRate: number, hkdTwdRate: number, krwTwdRate: number }
 ) {
+    if (price === undefined || price === null) return "---";
+
     const isIndex = symbol.startsWith("^");
     const isExchangeRate = symbol.endsWith("TWD");
     let displayPrice = price;

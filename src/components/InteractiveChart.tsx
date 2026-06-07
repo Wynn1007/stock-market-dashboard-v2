@@ -1,178 +1,127 @@
-import React, { useRef, useEffect } from "react";
-import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, Time } from "lightweight-charts";
-import { Candle } from "../types";
+import React, { useRef, useEffect } from 'react';
+import { createChart, IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts';
+import { useStore } from '../store/useStore';
 
-interface InteractiveChartProps {
-  candles: Candle[];
-  livePrice?: number;
-  symbol: string;
-  chartType: "line" | "candlestick";
-  theme: "midnight" | "milk";
-  currency: "TWD" | "USD";
-  usdTwdRate: number;
-  jpyTwdRate: number;
-  hkdTwdRate: number;
-  krwTwdRate: number;
-}
+const InteractiveChart = () => {
+    const { tickerDetails, theme, setTimeframe } = useStore(state => ({
+        tickerDetails: state.tickerDetails,
+        theme: state.theme,
+        setTimeframe: state.setTimeframe,
+    }));
 
-// Helper to convert prices based on currency selection
-const convertPrice = (p: number, symbol: string, currency: string, rates: { usdTwdRate: number, jpyTwdRate: number, hkdTwdRate: number, krwTwdRate: number }) => {
-    const isTW = symbol.endsWith(".TW") || symbol.startsWith("00");
-    const isIndex = symbol.startsWith("^");
-    if (isIndex) return p;
+    const chartContainerRef = useRef<HTMLDivElement>(null);
+    const chartRef = useRef<IChartApi | null>(null);
+    const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
 
-    let assetCurrency: "USD" | "TWD" | "JPY" | "HKD" | "KRW" = "USD";
-    if (isTW) assetCurrency = "TWD";
-    else if (symbol.endsWith(".T") || symbol === "^N225") assetCurrency = "JPY";
-    else if (symbol.endsWith(".HK") || symbol === "^HSI") assetCurrency = "HKD";
-    else if (symbol.endsWith(".KS")) assetCurrency = "KRW";
+    useEffect(() => {
+        if (!chartContainerRef.current) return;
 
-    let priceInTwd = p;
-    if (assetCurrency === "USD") priceInTwd = p * rates.usdTwdRate;
-    else if (assetCurrency === "JPY") priceInTwd = p * rates.jpyTwdRate;
-    else if (assetCurrency === "HKD") priceInTwd = p * rates.hkdTwdRate;
-    else if (assetCurrency === "KRW") priceInTwd = p * rates.krwTwdRate;
+        const handleResize = () => {
+            if (chartRef.current && chartContainerRef.current) {
+                chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+            }
+        };
 
-    return currency === "TWD" ? priceInTwd : priceInTwd / rates.usdTwdRate;
+        chartRef.current = createChart(chartContainerRef.current, {
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight,
+            layout: {
+                background: { color: 'transparent' },
+                textColor: theme === 'midnight' ? '#D1D5DB' : '#1F2937',
+            },
+            grid: {
+                vertLines: { color: theme === 'midnight' ? '#2A2E39' : '#E5E7EB' },
+                horzLines: { color: theme === 'midnight' ? '#2A2E39' : '#E5E7EB' },
+            },
+            timeScale: {
+                borderColor: theme === 'midnight' ? '#4B5563' : '#D1D5DB',
+            },
+        });
+
+        candleSeriesRef.current = chartRef.current.addCandlestickSeries({
+            upColor: '#22c55e',
+            downColor: '#ef4444',
+            borderDownColor: '#ef4444',
+            borderUpColor: '#22c55e',
+            wickDownColor: '#ef4444',
+            wickUpColor: '#22c55e',
+        });
+
+        volumeSeriesRef.current = chartRef.current.addHistogramSeries({
+            color: '#26a69a',
+            priceFormat: {
+                type: 'volume',
+            },
+            priceScaleId: 'volume_scale',
+        });
+        chartRef.current.priceScale('volume_scale').applyOptions({
+            scaleMargins: {
+                top: 0.8,
+                bottom: 0,
+            },
+        });
+
+        window.addEventListener('resize', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            chartRef.current?.remove();
+        };
+    }, [theme]);
+
+    useEffect(() => {
+        if (chartRef.current) {
+            chartRef.current.applyOptions({
+                 layout: {
+                    textColor: theme === 'midnight' ? '#D1D5DB' : '#1F2937',
+                },
+                grid: {
+                    vertLines: { color: theme === 'midnight' ? '#2A2E39' : '#E5E7EB' },
+                    horzLines: { color: theme === 'midnight' ? '#2A2E39' : '#E5E7EB' },
+                },
+            });
+        }
+    }, [theme]);
+
+    useEffect(() => {
+        if (candleSeriesRef.current && tickerDetails?.candles) {
+            const data = tickerDetails.candles.map(c => ({
+                time: (c.time / 1000) as Time,
+                open: c.open,
+                high: c.high,
+                low: c.low,
+                close: c.close,
+            }));
+            candleSeriesRef.current.setData(data);
+        }
+        if (volumeSeriesRef.current && tickerDetails?.candles) {
+            const volumeData = tickerDetails.candles.map(c => ({
+                time: (c.time / 1000) as Time,
+                value: c.volume,
+                color: c.close > c.open ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)',
+            }));
+            volumeSeriesRef.current.setData(volumeData);
+        }
+    }, [tickerDetails]);
+
+    const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+    return (
+        <div className="h-full w-full relative">
+             <div className="absolute top-2 left-2 z-10 flex gap-1">
+                {timeframes.map(tf => (
+                    <button 
+                        key={tf}
+                        onClick={() => setTimeframe(tf)}
+                        className="px-2 py-1 text-xs bg-slate-700/50 rounded hover:bg-slate-600"
+                    >
+                        {tf}
+                    </button>
+                ))}
+            </div>
+            <div ref={chartContainerRef} className="h-full w-full" />
+        </div>
+    );
 };
 
-export default function InteractiveChart({
-  candles,
-  livePrice,
-  symbol,
-  chartType,
-  theme,
-  currency,
-  usdTwdRate,
-  jpyTwdRate,
-  hkdTwdRate,
-  krwTwdRate,
-}: InteractiveChartProps) {
-  const chartContainerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    const isMidnight = theme === "midnight";
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { color: isMidnight ? "#0f172a" : "#ffffff" },
-        textColor: isMidnight ? "#d1d5db" : "#1f2937",
-      },
-      grid: {
-        vertLines: { color: isMidnight ? "#334155" : "#e5e7eb" },
-        horzLines: { color: isMidnight ? "#334155" : "#e5e7eb" },
-      },
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: true,
-      },
-      crosshair: {
-        mode: 1, // Magnet mode
-      },
-    });
-
-    chartRef.current = chart;
-
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: "#10b981",
-      downColor: "#ef4444",
-      borderDownColor: "#ef4444",
-      borderUpColor: "#10b981",
-      wickDownColor: "#ef4444",
-      wickUpColor: "#10b981",
-    });
-    candlestickSeriesRef.current = candlestickSeries;
-
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: {
-        type: "volume",
-      },
-      priceScaleId: "", // Set as an overlay
-    });
-    volumeSeries.priceScale().applyOptions({
-        scaleMargins: {
-            top: 0.8, // 80% empty space
-            bottom: 0,
-        }
-    })
-    volumeSeriesRef.current = volumeSeries;
-
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    handleResize(); // Initial resize
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [theme]); // Recreate chart on theme change
-
-  useEffect(() => {
-    if (!candlestickSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
-    
-    const rates = { usdTwdRate, jpyTwdRate, hkdTwdRate, krwTwdRate };
-
-    const candlestickData: CandlestickData<Time>[] = candles.map(c => ({
-      time: (c.time / 1000) as Time,
-      open: convertPrice(c.open, symbol, currency, rates),
-      high: convertPrice(c.high, symbol, currency, rates),
-      low: convertPrice(c.low, symbol, currency, rates),
-      close: convertPrice(c.close, symbol, currency, rates),
-    }));
-
-    const volumeData: HistogramData<Time>[] = candles.map(c => ({
-        time: (c.time / 1000) as Time,
-        value: c.volume,
-        color: c.close >= c.open ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)",
-    }));
-
-    candlestickSeriesRef.current.setData(candlestickData);
-    volumeSeriesRef.current.setData(volumeData);
-
-    // Auto-fit view
-    chartRef.current?.timeScale().fitContent();
-
-  }, [candles, currency, usdTwdRate, jpyTwdRate, hkdTwdRate, krwTwdRate, symbol]);
-  
-  // Live price update
-  useEffect(() => {
-      if (
-        !livePrice ||
-        !candlestickSeriesRef.current ||
-        !volumeSeriesRef.current ||
-        candles.length === 0
-      ) return;
-      
-      const rates = { usdTwdRate, jpyTwdRate, hkdTwdRate, krwTwdRate };
-      const convertedPrice = convertPrice(livePrice, symbol, currency, rates);
-      
-      const lastCandle = candles[candles.length-1];
-      const lastCandleTime = (lastCandle.time / 1000) as Time;
-
-      candlestickSeriesRef.current.update({
-          time: lastCandleTime,
-          close: convertedPrice,
-          high: Math.max(convertPrice(lastCandle.high, symbol, currency, rates), convertedPrice),
-          low: Math.min(convertPrice(lastCandle.low, symbol, currency, rates), convertedPrice)
-      });
-      
-  }, [livePrice]);
-
-  return (
-    <div className="w-full h-full flex flex-col" id="trading-chart-container">
-      <div ref={chartContainerRef} className="flex-1 w-full h-full min-h-[300px]" />
-    </div>
-  );
-}
+export default InteractiveChart;

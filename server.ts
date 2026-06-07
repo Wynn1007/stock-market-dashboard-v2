@@ -11,7 +11,7 @@ import dns from "dns";
 import { initializeDatabase } from "./server/db";
 import { apiRouter, sendDiscordMessage } from "./server/routes";
 import { setupWebSocket, startMarketSimulation } from "./server/websocket";
-import { database, ASSET_DIRECTORY, getYahooSymbol, generateCandlesForTimeframe } from "./server/prices";
+import { database, ASSET_DIRECTORY, getYahooSymbol, generateCandlesForTimeframe, getMarketStatus, getAssetCandles, getBinanceSymbol } from "./server/prices";
 
 // Set IPv4 preference for stable connection resolutions
 dns.setDefaultResultOrder("ipv4first");
@@ -103,11 +103,13 @@ async function syncRealPricesFromYahoo() {
     const extraRates = ["JPYTWD=X", "HKDTWD=X", "KRWTWD=X"];
     const fullSymbols = [...new Set([...symbolsList, ...extraRates])];
     
-    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
+    // Using query1.finance.yahoo.com which is sometimes more permissive than query2
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
     const res = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         "Accept": "application/json",
+        "Referer": "https://finance.yahoo.com/",
       },
     });
     if (!res.ok) throw new Error(`Yahoo HTTP quote error: ${res.status}`);

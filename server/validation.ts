@@ -54,7 +54,7 @@ export const OrderSchema = z.object({
 
 // --- Validation Middleware ---
 
-export const validate = (schema: z.AnyZodObject) => 
+export const validate = (schema: z.ZodObject<any, any>) => 
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await schema.parseAsync({

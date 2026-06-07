@@ -1,61 +1,95 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 
-export const useWebSocket = (token: string | null) => {
+export const useWebSocket = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const { 
+    token, 
     setWsStatus, 
-    setAssets, 
-    setTickerDetails, 
-    setUserOrders,
+    handleWebSocketMessage, 
     selectedSymbol, 
     timeframe 
-  } = useStore();
+  } = useStore(state => ({
+    token: state.token,
+    setWsStatus: state.setWsStatus,
+    handleWebSocketMessage: state.handleWebSocketMessage,
+    selectedSymbol: state.selectedSymbol,
+    timeframe: state.timeframe,
+  }));
 
-  useEffect(() => {
-    if (!token) {
-      setWsStatus("disconnected");
-      wsRef.current?.close();
+  const connect = useCallback(() => {
+    // Prevent multiple connections
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       return;
     }
-
-    const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}?token=${encodeURIComponent(token)}`;
+    
+    setWsStatus("connecting");
+    
+    // The server URL can be constructed to include the token if needed for auth
+    const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => setWsStatus("connected");
-    ws.onclose = () => setWsStatus("disconnected");
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'TICK') {
-        setAssets(assets => assets.map(a => a.symbol === msg.symbol ? { ...a, price: msg.price, changePercent: msg.changePercent } : a));
-        if (msg.symbol === useStore.getState().selectedSymbol) {
-          setTickerDetails(d => d ? { ...d, price: msg.price, changePercent: msg.changePercent, high: Math.max(d.high, msg.price), low: Math.min(d.low, msg.price) } : null);
-        }
-      } else if (msg.type === 'HISTORY_DATA' && msg.symbol === useStore.getState().selectedSymbol) {
-        setTickerDetails(d => ({ ...(d || {}), symbol: msg.symbol, candles: msg.candles }));
-      } else if (msg.type === 'ORDER_EXECUTED') {
-        // This should trigger a refetch of orders, for now just updating the store
-        fetch(`/api/orders`, { headers: { "Authorization": `Bearer ${token}` } })
-            .then(res => res.json())
-            .then(data => {
-                if(data.success) setUserOrders(data.orders);
-            });
+    ws.onopen = () => {
+      setWsStatus("connected");
+      // Request initial history for the currently selected symbol
+      if (selectedSymbol) {
+        ws.send(JSON.stringify({ type: "REQUEST_HISTORY", symbol: selectedSymbol, timeframe }));
       }
     };
-    
-    return () => ws.close();
-  }, [token, setWsStatus, setAssets, setTickerDetails, setUserOrders]);
 
+    ws.onclose = () => {
+      setWsStatus("disconnected");
+      // Automatic reconnection strategy
+      setTimeout(() => {
+        connect();
+      }, 5000); 
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      ws.close(); // This will trigger onclose and the reconnection logic
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        handleWebSocketMessage(msg);
+      } catch (e) {
+        console.error("Error processing WebSocket message:", e);
+      }
+    };
+  }, [token, setWsStatus, handleWebSocketMessage, selectedSymbol, timeframe]);
+
+  // Effect to establish and tear down the connection
   useEffect(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "REQUEST_HISTORY", symbol: selectedSymbol, timeframe: timeframe }));
+    connect();
+    
+    // Cleanup on component unmount
+    return () => {
+      if (wsRef.current) {
+        // Remove the onclose listener to prevent reconnection attempts on unmount
+        wsRef.current.onclose = null; 
+        wsRef.current.close();
+      }
+    };
+  }, [connect]);
+
+  // Effect to subscribe to new symbols or timeframes
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && selectedSymbol) {
+      wsRef.current.send(JSON.stringify({ type: "REQUEST_HISTORY", symbol: selectedSymbol, timeframe }));
     }
   }, [selectedSymbol, timeframe]);
 
-  const placeOrder = (side: "BUY" | "SELL", price: number, qty: number) => {
+  // Function to place an order, exposed by the hook
+  const placeOrder = (side: "BUY" | "SELL", price: number, qty: number, symbol: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "PLACE_ORDER", symbol: selectedSymbol, side, price, qty }));
+      wsRef.current.send(JSON.stringify({ type: "PLACE_ORDER", symbol, side, price, qty }));
+    } else {
+      console.error("WebSocket is not connected. Cannot place order.");
+      // Optionally, queue the order or show an error to the user
     }
   };
 

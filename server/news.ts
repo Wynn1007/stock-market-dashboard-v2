@@ -27,10 +27,11 @@ export interface NewsAnalysis {
 
 export async function fetchNewsForSymbol(symbol: string): Promise<NewsItem[]> {
   try {
-    const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${symbol}`;
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${symbol}`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Referer": "https://finance.yahoo.com/",
       },
     });
     if (!res.ok) throw new Error(`Yahoo News API failed: ${res.status}`);
