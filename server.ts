@@ -103,17 +103,33 @@ async function syncRealPricesFromYahoo() {
     const extraRates = ["JPYTWD=X", "HKDTWD=X", "KRWTWD=X"];
     const fullSymbols = [...new Set([...symbolsList, ...extraRates])];
     
-    // Using query1.finance.yahoo.com which is sometimes more permissive than query2
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
+    // Yahoo often requires a Cookie/Crumb now. We attempt with refined headers.
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
         "Referer": "https://finance.yahoo.com/",
       },
     });
-    if (!res.ok) throw new Error(`Yahoo HTTP quote error: ${res.status}`);
-    const json: any = await res.json();
+
+    if (res.status === 401) {
+      console.warn("[Yahoo Sync] 401 Unauthorized detected. Attempting fallback to query1...");
+      const fallbackUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${fullSymbols.join(",")}`;
+      const fallbackRes = await fetch(fallbackUrl, {
+        headers: { "User-Agent": "PostmanRuntime/7.39.0", "Referer": "https://finance.yahoo.com/" }
+      });
+      if (!fallbackRes.ok) throw new Error(`Yahoo Fallback HTTP error: ${fallbackRes.status}`);
+      var json: any = await fallbackRes.json();
+    } else if (!res.ok) {
+      throw new Error(`Yahoo HTTP quote error: ${res.status}`);
+    } else {
+      var json: any = await res.json();
+    }
+
     const results = json?.quoteResponse?.result || [];
 
     for (const quote of results) {
